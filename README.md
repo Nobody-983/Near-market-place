@@ -52,18 +52,27 @@ Players play an interactive milestone-based game, earn **genuine on-chain NEP-17
 
 ## 🔍 On-Chain Testnet Evidence
 
-The core lifecycle has been executed and verified on NEAR Testnet:
+The complete end-to-end marketplace lifecycle has been executed and verified on NEAR Testnet:
 
 - **Marketplace Trading Activation:**  
   Tx: [`Gh3zxoLJGGftHxRhVCk2BiJfGSa5UPjfRV92AbEEa6s5`](https://testnet.nearblocks.io/txns/Gh3zxoLJGGftHxRhVCk2BiJfGSa5UPjfRV92AbEEa6s5) — `trading_enabled = true`
 - **NFT Minting (`nft_mint`):**  
-  Tx: [`7Qw1CFGRXQ4sYJetrUMBreMsJEFcSNDyELodLzfq68pz`](https://testnet.nearblocks.io/txns/7Qw1CFGRXQ4sYJetrUMBreMsJEFcSNDyELodLzfq68pz) — Token `catalog-roundfrog-1794354659`
+  Tx: [`7Qw1CFGRXQ4sYJetrUMBreMsJEFcSNDyELodLzfq68pz`](https://testnet.nearblocks.io/txns/7Qw1CFGRXQ4sYJetrUMBreMsJEFcSNDyELodLzfq68pz) — Token `catalog-roundfrog-1794354659` minted to seller
 - **NFT Listing Approval (`nft_approve`):**  
-  Tx: [`6qyZj92yLtA5QSdXreMn2TVr3C3GYxW2fX5CiBVU2sET`](https://testnet.nearblocks.io/txns/6qyZj92yLtA5QSdXreMn2TVr3C3GYxW2fX5CiBVU2sET) — Listing created on marketplace
-- **Multi-Wallet Cancellation Rejection:**  
-  Attempt by `buyer.roundfrog-dev.testnet` rejected by contract panic: *"Only the seller may cancel"*
+  Tx: [`3ivrcy1MTpUgpKkmt9E8xzRqh4detzW3gpBBEjtjKPq4`](https://testnet.nearblocks.io/txns/3ivrcy1MTpUgpKkmt9E8xzRqh4detzW3gpBBEjtjKPq4) — Active listing created with composite ID `...|2`
 - **Authorized Listing Cancellation (`cancel_listing`):**  
-  Tx: [`8EWzXeTykEnsMwRbQP3yeM9up184bovCmhoj99ss6LyR`](https://testnet.nearblocks.io/txns/8EWzXeTykEnsMwRbQP3yeM9up184bovCmhoj99ss6LyR) — Active listing cleanly cleared
+  Tx: [`8EWzXeTykEnsMwRbQP3yeM9up184bovCmhoj99ss6LyR`](https://testnet.nearblocks.io/txns/8EWzXeTykEnsMwRbQP3yeM9up184bovCmhoj99ss6LyR) — Verified on-chain cancellation
+- **Multi-Wallet Security Isolation:**  
+  Attempt by `buyer.roundfrog-dev.testnet` to cancel rejected by contract panic: *"Only the seller may cancel"*
+- **Multi-Wallet NFT Purchase (`buy_nft`):**  
+  Tx: [`2mJuAN9Rioqa32mkkMnaScLZUpgdPVMadeSkcyPeVyS3`](https://testnet.nearblocks.io/txns/2mJuAN9Rioqa32mkkMnaScLZUpgdPVMadeSkcyPeVyS3) — `buyer.roundfrog-dev.testnet` bought token for 0.1 NEAR
+- **Atomic Settlement & Accounting:**  
+  - Ownership transferred: `buyer.roundfrog-dev.testnet`
+  - Seller proceeds credited on marketplace: `0.099 NEAR` (`99000000000000000000000` yoctoNEAR)
+  - Operator fee credited on marketplace: `0.001 NEAR` (`1000000000000000000000` yoctoNEAR)
+  - Listing active status: `false`
+- **Replay Protection:**  
+  Second purchase attempt rejected with contract panic (`Listing is not active`), confirming duplicate purchase prevention.
 
 ---
 
