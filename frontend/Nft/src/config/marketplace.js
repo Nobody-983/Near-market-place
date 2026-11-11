@@ -29,7 +29,9 @@ const reviewedContractsConfigured =
 export const LISTING_ACTIONS_ENABLED =
   runtimeEnv.VITE_TESTNET_LISTING_FLOW_VERIFIED === "true" &&
   reviewedContractsConfigured;
-export const PURCHASES_ENABLED = false;
+export const PURCHASES_ENABLED =
+  runtimeEnv.VITE_TESTNET_PURCHASE_FLOW_VERIFIED === "true" &&
+  reviewedContractsConfigured;
 export const MINTING_ACTIONS_ENABLED =
   runtimeEnv.VITE_TESTNET_MINT_FLOW_VERIFIED === "true" &&
   reviewedContractsConfigured;
