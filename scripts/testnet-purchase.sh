@@ -137,3 +137,4 @@ fi
 echo "[*] Step 4: Verifying final on-chain state..."
 node scripts/testnet-verify.mjs
 echo "[+] On-chain purchase verification complete."
+
