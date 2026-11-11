@@ -1,10 +1,23 @@
 
 import { useCallback, useEffect, useState } from "react";
-import { Sun, Zap, Loader2 } from "lucide-react";
+import { Sun, Zap, Loader2, ArrowUpRight } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 import { useWallet } from "../../context/walletContext";
 import { supabase } from "../../lib/supabase";
 import { validateNearAmount } from "../../lib/near/utils";
+import {
+  mintNftOnChain,
+  transactionHash,
+  waitForFinal,
+  assertFinalSuccess,
+  nftToken,
+  requireConnectedAccount,
+} from "../../lib/near/contract";
+import {
+  MINTING_ACTIONS_ENABLED,
+  MINTING_UNAVAILABLE_MESSAGE,
+} from "../../config/marketplace";
 
 const MILESTONE_LEVELS = [
   {
@@ -22,10 +35,16 @@ const MILESTONE_LEVELS = [
     tapsRequired: 5000,
     reward: "Gold NFT",
   },
+  {
+    level: 4,
+    tapsRequired: 10000,
+    reward: "Legendary Champion NFT",
+  },
 ];
 
 function Game() {
-  const { user } = useWallet();
+  const navigate = useNavigate();
+  const { user, selector, walletAddress, isConnected } = useWallet();
   const userId = user?.id;
 
   const [tapCount, setTapCount] = useState(0);
@@ -35,6 +54,9 @@ function Game() {
   const [isLoading, setIsLoading] = useState(true);
   const [isTapping, setIsTapping] = useState(false);
   const [claimingLevel, setClaimingLevel] = useState(null);
+  const [mintingRewardId, setMintingRewardId] = useState(null);
+  const [mintStatus, setMintStatus] = useState("");
+  const [mintError, setMintError] = useState("");
 
   // ================= LOAD GAME DATA =================
 
@@ -69,7 +91,11 @@ function Game() {
               image_url,
               category,
               price::text,
-              currency
+              currency,
+              token_id,
+              nft_contract_id,
+              onchain_status,
+              mint_tx_hash
             )
           `)
           .eq("user_id", userId)
@@ -297,6 +323,65 @@ function Game() {
     }
   };
 
+  // ================= MINT REWARD TO ON-CHAIN NEAR NFT =================
+
+  const handleMintReward = async (nft) => {
+    if (!MINTING_ACTIONS_ENABLED) {
+      setMintError(MINTING_UNAVAILABLE_MESSAGE);
+      return;
+    }
+    if (!isConnected || !selector || !walletAddress) {
+      setMintError("Connect the configured NEAR Testnet mint-authority wallet first.");
+      return;
+    }
+    if (!nft?.id || nft.token_id || nft.nft_contract_id || mintingRewardId) return;
+
+    const tokenId = `catalog-${nft.id}`;
+    const wallet = { selector, accountId: walletAddress };
+    setMintingRewardId(nft.id);
+    setMintError("");
+    setMintStatus("Submitting on-chain mint to NEAR Testnet...");
+
+    try {
+      await requireConnectedAccount(walletAddress, wallet);
+      const result = await mintNftOnChain({
+        tokenId,
+        ownerId: walletAddress,
+        wallet,
+        metadata: {
+          title: nft.name,
+          description: nft.description || null,
+          media: nft.image_url,
+          media_hash: null,
+          copies: "1",
+          issued_at: null,
+          expires_at: null,
+          starts_at: null,
+          updated_at: null,
+          extra: JSON.stringify({ catalog_id: nft.id, category: nft.category, source: "game_reward" }),
+          reference: null,
+          reference_hash: null,
+        },
+      });
+      const txHash = transactionHash(result);
+      setMintStatus("Waiting for on-chain block finality...");
+      const finalResult = await waitForFinal(txHash, walletAddress, wallet);
+      assertFinalSuccess(finalResult, "Game reward NFT mint");
+      await requireConnectedAccount(walletAddress, wallet);
+      const token = await nftToken(tokenId, wallet);
+      if (!token || token.owner_id !== walletAddress || token.token_id !== tokenId) {
+        throw new Error("The finalized mint could not be verified against NFT contract state.");
+      }
+      setMintStatus(`"${nft.name}" was minted on NEAR! The trusted indexer is synchronizing the catalog record.`);
+      await loadGameData();
+    } catch (err) {
+      console.error("MINT REWARD ERROR:", err);
+      setMintError(err?.message || "Failed to mint reward NFT on NEAR.");
+    } finally {
+      setMintingRewardId(null);
+    }
+  };
+
   // ================= PROGRESS =================
 
   const getProgress = (milestone) => {
@@ -385,6 +470,18 @@ function Game() {
           </p>
         </div>
       </section>
+
+      {/* Mint Status / Error Alerts */}
+      {mintStatus && (
+        <div className="rounded-xl border border-green-500/20 bg-green-500/10 p-4 text-sm text-green-400">
+          {mintStatus}
+        </div>
+      )}
+      {mintError && (
+        <div className="rounded-xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-400">
+          {mintError}
+        </div>
+      )}
 
       {/* NFT Milestones */}
 
@@ -524,9 +621,45 @@ function Game() {
                         </p>
                       )}
 
-                      <p className="mt-3 text-xs text-green-500">
-                        NFT added to your collection.
-                      </p>
+                      {claimedReward.nft.token_id ? (
+                        <div className="mt-3 space-y-2">
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-green-500/10 px-2.5 py-1 text-xs font-semibold text-green-500">
+                            ✓ Genuine On-Chain NFT
+                          </span>
+                          <p className="truncate font-mono text-[11px] text-gray-400">
+                            {claimedReward.nft.token_id}
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => navigate(`/nft/${claimedReward.nft.id}`)}
+                            className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg bg-purple-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-purple-700"
+                          >
+                            <span>List on Marketplace</span>
+                            <ArrowUpRight className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="mt-3 space-y-2">
+                          <span className="inline-flex items-center gap-1 rounded-full bg-yellow-400/10 px-2.5 py-1 text-xs font-medium text-yellow-500">
+                            Claimed Collectible
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleMintReward(claimedReward.nft)}
+                            disabled={mintingRewardId === claimedReward.nft.id || !MINTING_ACTIONS_ENABLED}
+                            className="mt-2 w-full rounded-lg bg-yellow-400 px-3 py-2 text-xs font-semibold text-black transition hover:opacity-90 disabled:opacity-50"
+                          >
+                            {mintingRewardId === claimedReward.nft.id ? (
+                              <span className="flex items-center justify-center gap-1.5">
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                Minting on NEAR...
+                              </span>
+                            ) : (
+                              "Mint Genuine NFT on NEAR"
+                            )}
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
@@ -587,9 +720,54 @@ function Game() {
                       </p>
                     )}
 
-                    <p className="mt-4 text-xs text-green-500">
-                      Owned by you
-                    </p>
+                    <div className="mt-4 flex flex-col gap-2">
+                      {reward.nft.token_id ? (
+                        <>
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="font-semibold text-green-500">
+                              ✓ Verified On-Chain NFT
+                            </span>
+                            <span className="truncate font-mono text-gray-400 max-w-[120px]">
+                              {reward.nft.token_id}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => navigate(`/nft/${reward.nft.id}`)}
+                            className="flex items-center justify-center gap-1.5 rounded-lg bg-purple-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-purple-700"
+                          >
+                            <span>View / List for Sale</span>
+                            <ArrowUpRight className="h-3.5 w-3.5" />
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="text-yellow-500">
+                              Claimed Collectible
+                            </span>
+                            <span className="text-gray-400">
+                              Unminted
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleMintReward(reward.nft)}
+                            disabled={mintingRewardId === reward.nft.id || !MINTING_ACTIONS_ENABLED}
+                            className="flex items-center justify-center gap-1.5 rounded-lg bg-yellow-400 px-3 py-2 text-xs font-semibold text-black transition hover:opacity-90 disabled:opacity-50"
+                          >
+                            {mintingRewardId === reward.nft.id ? (
+                              <>
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                <span>Minting on NEAR...</span>
+                              </>
+                            ) : (
+                              <span>Mint Genuine NFT</span>
+                            )}
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </div>
                 </div>
               ))}

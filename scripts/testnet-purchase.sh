@@ -96,38 +96,47 @@ if [[ "${CONFIRM_TESTNET_PURCHASE:-no}" != "yes" ]]; then
   exit 2
 fi
 
-echo "[*] Step 1: Listing NFT from $SELLER for $PRICE_NEAR NEAR..."
-TERMS_MSG=$(cat <<EOF
-{"standard":"near_marketplace","version":"1.0.0","marketplace_id":"$MARKET_CONTRACT","nft_contract_id":"$NFT_CONTRACT","token_id":"$TOKEN_ID","seller_id":"$SELLER","price":"$PRICE_YOCTO","fee_bps":100,"fee_account":"$OPERATOR","expires_at":null}
-EOF
-)
+echo "[*] Step 1: Listing NFT $TOKEN_ID from $SELLER for $PRICE_NEAR NEAR..."
+TERMS_MSG="{\"standard\":\"near_marketplace\",\"version\":\"1.0.0\",\"marketplace_id\":\"$MARKET_CONTRACT\",\"nft_contract_id\":\"$NFT_CONTRACT\",\"token_id\":\"$TOKEN_ID\",\"seller_id\":\"$SELLER\",\"price\":\"$PRICE_YOCTO\",\"fee_bps\":100,\"fee_account\":\"$OPERATOR\",\"expires_at\":null}"
 
-LIST_OUTPUT=$($NEAR_CLI contract call-function as-transaction "$NFT_CONTRACT" nft_approve \
-  json-args "{\"token_id\": \"$TOKEN_ID\", \"account_id\": \"$MARKET_CONTRACT\", \"msg\": $(echo "$TERMS_MSG" | jq -R .)}" \
-  prepaid-gas "100.0 Tgas" attached-deposit "0.01 NEAR" sign-as "$SELLER" network-config testnet)
-echo "$LIST_OUTPUT"
+$NEAR_CLI contract call-function as-transaction "$NFT_CONTRACT" nft_approve \
+  json-args "{\"token_id\":\"$TOKEN_ID\",\"account_id\":\"$MARKET_CONTRACT\",\"msg\":$(printf '%s' "$TERMS_MSG" | jq -R .)}" \
+  prepaid-gas '150.0 Tgas' attached-deposit '0.01 NEAR' \
+  sign-as "$SELLER" network-config testnet sign-with-keychain send
 
-# Extract approval ID and construct listing ID
-APPROVAL_ID=$(echo "$LIST_OUTPUT" | grep -o 'Result: [0-9]*' | awk '{print $2}' || echo "1")
+echo "[+] Querying active listing on marketplace..."
+ACTIVE_LISTINGS=$(curl -s -X POST "$RPC_URL" -H 'Content-Type: application/json' \
+  -d "{\"jsonrpc\":\"2.0\",\"id\":\"chk_lst\",\"method\":\"query\",\"params\":{\"request_type\":\"call_function\",\"finality\":\"final\",\"account_id\":\"$MARKET_CONTRACT\",\"method_name\":\"listings\",\"args_base64\":\"e30=\"}}" \
+  | jq -r '.result.result | [ .[] ] | implode | fromjson')
+
+MATCHING_LISTING=$(echo "$ACTIVE_LISTINGS" | jq -r '[.[] | select(.token_id == "'"$TOKEN_ID"'" and .active == true)] | last // empty')
+APPROVAL_ID=$(echo "$MATCHING_LISTING" | jq -r .approval_id)
 LISTING_ID="${NFT_CONTRACT}|${TOKEN_ID}|${SELLER}|${APPROVAL_ID}"
-echo "[+] Listing created with ID: $LISTING_ID"
+echo "[+] Active Listing ID: $LISTING_ID"
+
+if [[ -z "$LISTING_ID" || "$LISTING_ID" == "null" || -z "$APPROVAL_ID" || "$APPROVAL_ID" == "null" ]]; then
+  echo "[-] ERROR: Active listing for $TOKEN_ID could not be determined" >&2
+  exit 1
+fi
 
 echo "[*] Step 2: Buyer $BUYER purchasing NFT ($LISTING_ID)..."
 BUY_OUTPUT=$($NEAR_CLI contract call-function as-transaction "$MARKET_CONTRACT" buy_nft \
   json-args "{\"listing_id\": \"$LISTING_ID\"}" \
-  prepaid-gas "120.0 Tgas" attached-deposit "$PRICE_NEAR NEAR" sign-as "$BUYER" network-config testnet)
+  prepaid-gas '150.0 Tgas' attached-deposit "$PRICE_NEAR NEAR" \
+  sign-as "$BUYER" network-config testnet sign-with-keychain send)
 echo "$BUY_OUTPUT"
-echo "[+] Purchase transaction executed."
+echo "[+] Purchase transaction executed on-chain."
 
 echo "[*] Step 3: Verifying replay protection (duplicate purchase must fail)..."
 set +e
 REPLAY_OUTPUT=$($NEAR_CLI contract call-function as-transaction "$MARKET_CONTRACT" buy_nft \
   json-args "{\"listing_id\": \"$LISTING_ID\"}" \
-  prepaid-gas "120.0 Tgas" attached-deposit "$PRICE_NEAR NEAR" sign-as "$BUYER" network-config testnet 2>&1)
+  prepaid-gas '150.0 Tgas' attached-deposit "$PRICE_NEAR NEAR" \
+  sign-as "$BUYER" network-config testnet sign-with-keychain send 2>&1)
 REPLAY_STATUS=$?
 set -e
 
-if [[ $REPLAY_STATUS -ne 0 ]] || echo "$REPLAY_OUTPUT" | grep -qi "panic\|not active\|error"; then
+if [[ $REPLAY_STATUS -ne 0 ]] || echo "$REPLAY_OUTPUT" | grep -qi "panic\|not active\|error\|ExecutionError"; then
   echo "[+] PASSED: Duplicate purchase attempt was rejected as expected."
 else
   echo "[-] FAILED: Duplicate purchase was NOT rejected!" >&2
@@ -135,6 +144,33 @@ else
 fi
 
 echo "[*] Step 4: Verifying final on-chain state..."
+BUYER_NFT=$(curl -s -X POST "$RPC_URL" -H 'Content-Type: application/json' \
+  -d "{\"jsonrpc\":\"2.0\",\"id\":\"chk_nft_post\",\"method\":\"query\",\"params\":{\"request_type\":\"call_function\",\"finality\":\"final\",\"account_id\":\"$NFT_CONTRACT\",\"method_name\":\"nft_token\",\"args_base64\":\"$(printf '{"token_id":"%s"}' "$TOKEN_ID" | base64 -w 0)\"}}" \
+  | jq -r '.result.result | [ .[] ] | implode | fromjson')
+
+NEW_OWNER=$(echo "$BUYER_NFT" | jq -r .owner_id)
+echo "    NFT Owner after purchase: $NEW_OWNER"
+if [[ "$NEW_OWNER" != "$BUYER" ]]; then
+  echo "[-] ERROR: NFT owner is $NEW_OWNER, expected $BUYER" >&2
+  exit 1
+fi
+echo "[+] PASSED: NFT ownership successfully transferred to $BUYER"
+
+SELLER_PROCEEDS=$(curl -s -X POST "$RPC_URL" -H 'Content-Type: application/json' \
+  -d "{\"jsonrpc\":\"2.0\",\"id\":\"chk_proc\",\"method\":\"query\",\"params\":{\"request_type\":\"call_function\",\"finality\":\"final\",\"account_id\":\"$MARKET_CONTRACT\",\"method_name\":\"seller_proceeds\",\"args_base64\":\"$(printf '{"seller_id":"%s"}' "$SELLER" | base64 -w 0)\"}}" \
+  | jq -r '.result.result | [ .[] ] | implode | fromjson')
+echo "    Seller proceeds on marketplace: $SELLER_PROCEEDS yoctoNEAR"
+
+FEE_PROCEEDS=$(curl -s -X POST "$RPC_URL" -H 'Content-Type: application/json' \
+  -d "{\"jsonrpc\":\"2.0\",\"id\":\"chk_fee\",\"method\":\"query\",\"params\":{\"request_type\":\"call_function\",\"finality\":\"final\",\"account_id\":\"$MARKET_CONTRACT\",\"method_name\":\"fee_proceeds\",\"args_base64\":\"$(printf '{"account_id":"%s"}' "$OPERATOR" | base64 -w 0)\"}}" \
+  | jq -r '.result.result | [ .[] ] | implode | fromjson')
+echo "    Operator fee proceeds: $FEE_PROCEEDS yoctoNEAR"
+
+FINAL_LISTING=$(curl -s -X POST "$RPC_URL" -H 'Content-Type: application/json' \
+  -d "{\"jsonrpc\":\"2.0\",\"id\":\"chk_lst_post\",\"method\":\"query\",\"params\":{\"request_type\":\"call_function\",\"finality\":\"final\",\"account_id\":\"$MARKET_CONTRACT\",\"method_name\":\"listing\",\"args_base64\":\"$(printf '{"listing_id":"%s"}' "$LISTING_ID" | base64 -w 0)\"}}" \
+  | jq -r '.result.result | [ .[] ] | implode | fromjson')
+echo "    Listing active status: $(echo "$FINAL_LISTING" | jq -r .active)"
+
 node scripts/testnet-verify.mjs
 echo "[+] On-chain purchase verification complete."
 

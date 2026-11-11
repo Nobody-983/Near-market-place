@@ -12,21 +12,29 @@ const marketplaceSql = await readFile(
   'utf8',
 );
 
+const genuineRewardsSql = await readFile(
+  new URL('../supabase/migrations/20261111000100_genuine_game_nft_rewards.sql', import.meta.url),
+  'utf8',
+);
+
 const gameJsx = await readFile(
   new URL('../frontend/Nft/src/pages/game/Game.jsx', import.meta.url),
   'utf8',
 );
 
 function functionDefinition(sql, name) {
-  const start = sql.indexOf(`create function ${name}(`);
+  const start = sql.indexOf(`create function ${name}(`) >= 0
+    ? sql.indexOf(`create function ${name}(`)
+    : sql.indexOf(`create or replace function ${name}(`);
   const end = sql.indexOf('\n$$;', start);
   assert.ok(start >= 0 && end > start, `${name} must exist in migration`);
   return sql.slice(start, end).replace(/--[^\n]*/g, '');
 }
 
 const claimGameRewardSql = functionDefinition(marketplaceSql, 'public.claim_game_reward');
+const genuineClaimGameRewardSql = functionDefinition(genuineRewardsSql, 'public.claim_game_reward');
 
-test('game milestone levels match the required tiers and tap counts', () => {
+test('game milestone levels match the required tiers and tap counts including legendary tier', () => {
   assert.ok(gameJsx.includes('level: 1'));
   assert.ok(gameJsx.includes('tapsRequired: 500'));
   assert.ok(gameJsx.includes('reward: "Bronze NFT"'));
@@ -38,6 +46,33 @@ test('game milestone levels match the required tiers and tap counts', () => {
   assert.ok(gameJsx.includes('level: 3'));
   assert.ok(gameJsx.includes('tapsRequired: 5000'));
   assert.ok(gameJsx.includes('reward: "Gold NFT"'));
+
+  assert.ok(gameJsx.includes('level: 4'));
+  assert.ok(gameJsx.includes('tapsRequired: 10000'));
+  assert.ok(gameJsx.includes('reward: "Legendary Champion NFT"'));
+});
+
+test('genuine game reward migration unlocks on-chain minting and marketplace listing', () => {
+  assert.match(
+    genuineRewardsSql,
+    /alter table public\.nfts drop constraint if exists game_rewards_are_offchain;/
+  );
+  assert.match(
+    genuineRewardsSql,
+    /\(v_nft\.source <> 'user' and v_nft\.source <> 'game_reward'\)/
+  );
+  assert.match(
+    genuineRewardsSql,
+    /\(v_nft\.source = 'game_reward' and v_nft\.token_id is null\)/
+  );
+  assert.match(
+    genuineClaimGameRewardSql,
+    /when 4 then v_required := 10000;\s+v_name := 'Legendary Champion NFT';/
+  );
+  assert.match(
+    genuineRewardsSql,
+    /grant execute on function public\.reconcile_nft_purchase\([^)]*\) to service_role;/
+  );
 });
 
 test('claim_game_reward SQL enforces verified wallet session and authenticated identity', () => {
