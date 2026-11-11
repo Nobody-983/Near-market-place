@@ -1,0 +1,116 @@
+{
+  "warning": "Offline measurement ONLY; expiry is a sentinel, all policy/budgets unapproved",
+  "manifest": {
+    "network": "testnet",
+    "rpc_url": "https://rpc.testnet.near.org",
+    "genesis_height": 42376888,
+    "genesis_block_hash": "FWJ9kR6KFWoyMoNjpLXXGHeuiy7tEY6GmoFeCA5yuc6b",
+    "accounts": {
+      "nft": "ahmed-nft-contract.testnet",
+      "marketplace": "ahmed-market-contract.testnet",
+      "seller": "ahmed-market-operator.testnet",
+      "admission_owner": "ahmed-market-operator.testnet"
+    },
+    "artifact_sha256": {
+      "nft": "b8a500297d6e93bc79c3f06834d09f31bf384816301d179d1aabb425a6a4a84d",
+      "marketplace": "5f0b522306a87bc01beebe4c7575b8ae705785d38f003feae18eebfe2835708a"
+    },
+    "expected_access_keys": {
+      "nft": [
+        {
+          "public_key": "ed25519:7aZzudyFPeEQsEhyEZjU18obGrjWGaHzZHLHqPykrY5m",
+          "permission": "FullAccess"
+        }
+      ],
+      "marketplace": [
+        {
+          "public_key": "ed25519:4dGe1yqKT4yqfGQtxZMhok4sjrG2bAL71s9MhxYeycj6",
+          "permission": "FullAccess"
+        }
+      ],
+      "seller": [
+        {
+          "public_key": "ed25519:GYG6b4FufEMFQmtPNfaJ8x9jfqeBmZLKS4SSfKKvKceK",
+          "permission": "FullAccess"
+        }
+      ],
+      "admission_owner": [
+        {
+          "public_key": "ed25519:GYG6b4FufEMFQmtPNfaJ8x9jfqeBmZLKS4SSfKKvKceK",
+          "permission": "FullAccess"
+        }
+      ]
+    },
+    "preparation": {
+      "status": "blocked",
+      "independent_genesis_review": false,
+      "key_inventory_and_local_custody_review": false,
+      "fixture_approved": false,
+      "budgets_and_retained_funding_approved": false,
+      "independent_node_measurement": false,
+      "cli_version_and_network_profile_verified": false,
+      "note": "Every proposed flow value requires review; expires_at_ns must be supplied. Do not initialize from this template."
+    },
+    "flow": {
+      "price_yocto": "1",
+      "fee_bps": "0",
+      "fee_cap_bps": "0",
+      "fee_account": "ahmed-market-operator.testnet",
+      "policy_version": "1",
+      "generation": "1",
+      "funding_nonce": "0",
+      "nft_metadata": {
+        "spec": "nft-1.0.0",
+        "name": "Ahmed testnet preparation",
+        "symbol": "ATEST"
+      },
+      "token_id": "prep-ahmed-20261102-01",
+      "token_metadata": {
+        "title": "Preparation fixture",
+        "description": "Test-only ownership and approval verification; no sale.",
+        "copies": 1
+      },
+      "expires_at_ns": "18446744073709551615",
+      "policy_hash": "d43efeb82b54bef8c335478badd7b9127f5bca7033caf2df8dded2e2a91fa905",
+      "correlation": "0ce1e1756754d0ca0071f6c5fe926ccfd5bebeddabf188c5d4644f7286e92b39",
+      "creation_bytes": "131072",
+      "reserve_yocto": "1310720000000000000000000",
+      "funding_yocto": "2621440000000000000000000",
+      "mint_deposit_yocto": "163840000000000000000000",
+      "approval_deposit_yocto": "163840000000000000000000",
+      "max_result_bytes": "16384",
+      "first_call_gas": "37500000000000",
+      "second_call_gas": "37500000000000",
+      "callback_gas": "37500000000000",
+      "local_gas": "37500000000000",
+      "transaction_gas": {
+        "nft-deploy": "300000000000000",
+        "marketplace-deploy": "300000000000000",
+        "fund": "300000000000000",
+        "mint": "300000000000000",
+        "approve": "300000000000000",
+        "create": "300000000000000",
+        "dispatch": "300000000000000"
+      }
+    }
+  },
+  "domain": "ANeE2lqeXmZmhRbBmoCVRI/FSiKiiXHcMw8Amd+UN5QQxPuJ4K72mGZ+MfTx5i4XDfiM2QAnuDHFpTF9R6Fbk1NfC1IjBqh7wBvuvkx1dbiucFeF048AP+rhjuv+KDVwirilACl9bpO8ecPwaDTQnzG/OEgWMB0XnRqrtCWmpKhNHQAAAGFobWVkLW1hcmtldC1jb250cmFjdC50ZXN0bmV0GgAAAGFobWVkLW5mdC1jb250cmFjdC50ZXN0bmV0",
+  "operation": "bmVhci1tYXJrZXRwbGFjZTpvcGVyYXRpb246djEAAQAA14TaWp5eZmaFFsGagJVEj8VKIqKJcdwzDwCZ35Q3lBDE+4ngrvaYZn4x9PHmLhcN+IzZACe4McWlMX1HoVuTU18LUiMGqHvAG+6+THV1uK5wV4XTjwA/6uGO6/4oNXCKuKUAKX1uk7x5w/BoNNCfMb84SBYwHRedGqu0JaakqE0dAAAAYWhtZWQtbWFya2V0LWNvbnRyYWN0LnRlc3RuZXQaAAAAYWhtZWQtbmZ0LWNvbnRyYWN0LnRlc3RuZXQAAQAAAAAAAAAaAAAAYWhtZWQtbmZ0LWNvbnRyYWN0LnRlc3RuZXQWAAAAcHJlcC1haG1lZC0yMDI2MTEwMi0wMR0AAABhaG1lZC1tYXJrZXQtb3BlcmF0b3IudGVzdG5ldAEAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAP//////////AAAAAB0AAABhaG1lZC1tYXJrZXQtb3BlcmF0b3IudGVzdG5ldAEAAAAAAAAA1D7+uCtUvvjDNUeLrde5En9bynAzyvLfjd7S4qkfqQUM4eF1Z1TQygBx9sX+kmzP1b6+3avxiMXUZE9yhukrOQEAAAAAAAAAANgtJhsiAAAA2C0mGyIAAADYLSYbIgAAAEAAADYhTSO3F1PSRHjlRUJ2vyqdPRZXrdBMHG4KoApHALsL6DM7wFnYaxAyPYfRP1zDGH06BKguflRFsZEwNTVrm5U=",
+  "admission_id": "EKSND66LxIRgRThW5EGG5Ww3rJ/XzV/wq8WKK9lgfMI=",
+  "gas_per_method": {
+    "new_testnet": 300000000000000,
+    "bootstrap_with_admission_owner": 300000000000000,
+    "nft_mint": 300000000000000,
+    "nft_approve": 300000000000000,
+    "fund_testnet_storage": 300000000000000,
+    "create_nft_admission": 300000000000000,
+    "dispatch_nft_admission": 300000000000000,
+    "nft_token": 37500000000000,
+    "nft_is_approved": 37500000000000,
+    "on_nft_verified": 37500000000000,
+    "storage_status": 300000000000000
+  },
+  "probe_gas": 300000000000000,
+  "block_height": 275815859,
+  "block_timestamp": "1793574726084983465"
+}

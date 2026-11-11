@@ -1,0 +1,54 @@
+{
+  "blockers": [
+    "less than 30 GiB free: 24 GiB build allowance plus 6 GiB reserve",
+    "less than 6 GiB MemAvailable for the pinned build/link profile"
+  ],
+  "build_status": "NOT_RUN",
+  "cargo_lock_sha256": "0da292b89a32e53e4d4cb33e231f0f834ccfe777ea5e69ffddf4f731ff0b4223",
+  "command": [
+    "cargo",
+    "+1.95.0",
+    "build",
+    "--locked",
+    "--release",
+    "-p",
+    "near-store",
+    "--bin",
+    "nft-receipt-exporter"
+  ],
+  "component": "exporter",
+  "dependencies": {
+    "c++": "/usr/bin/c++",
+    "cc": "/home/acknowlege/.local/bin/cc",
+    "clang": "/home/acknowlege/.local/bin/clang",
+    "cmake": "/tmp/nft-validation-build-deps/root/usr/bin/cmake",
+    "make": "/usr/bin/make",
+    "pkg-config": "/usr/bin/pkg-config"
+  },
+  "disk_free_bytes": 31829188608,
+  "executable_sha256": null,
+  "git_commit": null,
+  "host": "Linux-6.5.0-44-generic-x86_64-with-glibc2.38",
+  "memory_available_bytes": 6039261184,
+  "openssl": "3.0.10",
+  "release_profile": {
+    "codegen-units": 1,
+    "lto": "fat",
+    "overflow-checks": true,
+    "panic": "abort"
+  },
+  "resource_policy": {
+    "basis": "conservative local policy; build size unmeasured",
+    "jobs": 1,
+    "required_available_memory_bytes": 6442450944,
+    "required_free_disk_bytes": 32212254720,
+    "stop_free_disk_bytes": 6442450944
+  },
+  "rustc": "rustc 1.95.0 (59807616e 2026-04-14)\nbinary: rustc\ncommit-hash: 59807616e1fa2540724bfbac14d7976d7e4a3860\ncommit-date: 2026-04-14\nhost: x86_64-unknown-linux-gnu\nrelease: 1.95.0\nLLVM version: 22.1.2\n",
+  "source": {
+    "archive_sha256": "3c4254540a4bac8edf07c49ea07fcaf0bcbb59fe51afd2e37bad6ff036db3f99",
+    "files": 2485,
+    "source_commit": "b7b4737cab46f17a6daa2ed694d7aebbd204363a",
+    "tree_manifest_sha256": "cbfbbc4e81284cb976a20ad52b613903aad4c21626001114bf9bbe5921e35c1f"
+  }
+}

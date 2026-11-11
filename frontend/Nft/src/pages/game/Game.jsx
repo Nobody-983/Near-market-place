@@ -4,6 +4,7 @@ import { Sun, Zap, Loader2 } from "lucide-react";
 
 import { useWallet } from "../../context/walletContext";
 import { supabase } from "../../lib/supabase";
+import { validateNearAmount } from "../../lib/near/utils";
 
 const MILESTONE_LEVELS = [
   {
@@ -25,6 +26,7 @@ const MILESTONE_LEVELS = [
 
 function Game() {
   const { user } = useWallet();
+  const userId = user?.id;
 
   const [tapCount, setTapCount] = useState(0);
   const [claimedRewards, setClaimedRewards] = useState([]);
@@ -37,7 +39,7 @@ function Game() {
   // ================= LOAD GAME DATA =================
 
   const loadGameData = useCallback(async () => {
-    if (!user?.id) {
+    if (!userId) {
       setTapCount(0);
       setClaimedRewards([]);
       setIsLoading(false);
@@ -51,7 +53,7 @@ function Game() {
         supabase
           .from("profiles")
           .select("tap_count")
-          .eq("id", user.id)
+          .eq("id", userId)
           .single(),
 
         supabase
@@ -66,11 +68,11 @@ function Game() {
               description,
               image_url,
               category,
-              price,
+              price::text,
               currency
             )
           `)
-          .eq("user_id", user.id)
+          .eq("user_id", userId)
           .order("reward_level", {
             ascending: true,
           }),
@@ -91,7 +93,9 @@ function Game() {
           id: reward.id,
           level: reward.reward_level,
           nftId: reward.nft_id,
-          nft: reward.nfts ?? null,
+          nft: reward.nfts ? {
+            ...reward.nfts, price: validateNearAmount(reward.nfts.price),
+          } : null,
         }))
       );
     } catch (error) {
@@ -99,12 +103,12 @@ function Game() {
     } finally {
       setIsLoading(false);
     }
-  }, [user?.id]);
+  }, [userId]);
 
   // ================= LOAD LEADERBOARD =================
 
   const loadLeaderboard = useCallback(async () => {
-    if (!user?.id) {
+    if (!userId) {
       setLeaderboard([]);
       return;
     }
@@ -129,7 +133,7 @@ function Game() {
       // Make sure the current user is visible even
       // when they are outside the top 10.
       const currentUserIsIncluded = players.some(
-        (player) => player.id === user.id
+        (player) => player.id === userId
       );
 
       if (!currentUserIsIncluded) {
@@ -139,7 +143,7 @@ function Game() {
             .select(
               "id, username, display_name, avatar_url, tap_count"
             )
-            .eq("id", user.id)
+            .eq("id", userId)
             .maybeSingle();
 
         if (currentUserError) {
@@ -185,13 +189,12 @@ function Game() {
         error
       );
     }
-  }, [user?.id]);
+  }, [userId]);
 
   // ================= INITIAL LOAD =================
 
   useEffect(() => {
-    loadGameData();
-    loadLeaderboard();
+    void Promise.resolve().then(() => Promise.all([loadGameData(), loadLeaderboard()]));
   }, [loadGameData, loadLeaderboard]);
 
   // ================= TAP =================
@@ -338,7 +341,7 @@ function Game() {
 
           <div>
             <h1 className="text-2xl font-bold">
-              Nimiq Tap Game
+              NEAR Tap Game
             </h1>
 
             <p className="text-sm text-gray-500">
@@ -378,7 +381,7 @@ function Game() {
           </button>
 
           <p className="mt-5 text-sm text-gray-500">
-            Tap the Nimiq coin
+            Tap the NEAR coin
           </p>
         </div>
       </section>
@@ -549,7 +552,7 @@ function Game() {
             </h2>
 
             <p className="text-sm text-gray-500">
-              NFTs you earned from the Nimiq Tap Game.
+              NFTs you earned from the NEAR Tap Game.
             </p>
           </div>
 
@@ -618,7 +621,7 @@ function Game() {
                 const playerName =
                   player.username ||
                   player.display_name ||
-                  "Nimiq Player";
+                  "NEAR Player";
 
                 const isCurrentUser =
                   player.id === user?.id;

@@ -1,0 +1,86 @@
+{
+  "status": "plan_only_not_executed",
+  "execution_enabled": false,
+  "public_transactions_allowed": false,
+  "node": {
+    "product": "NEAR Sandbox",
+    "nearcore_version": "2.14.0-rc.5",
+    "commit": "b7b4737cab46f17a6daa2ed694d7aebbd204363a",
+    "features": [
+      "sandbox"
+    ],
+    "protocol_version": 88,
+    "build_rust": "1.95.0",
+    "binary_sha256": null,
+    "binary_sha256_status": "must be measured and reviewed before any future execution"
+  },
+  "proposed_runner_dependency_pins": {
+    "near-workspaces": "=0.24.0",
+    "near-sandbox": "=0.4.0",
+    "near-jsonrpc-client": "=0.23.0",
+    "near-primitives": "=0.38.0",
+    "near-jsonrpc-primitives": "=0.38.0"
+  },
+  "runner_status": "not implemented; reviewed standalone Cargo.lock required",
+  "local_accounts": {
+    "nft": "local-nft-contract.testnet",
+    "marketplace": "local-market-contract.testnet",
+    "seller": "local-market-operator.testnet",
+    "admission_owner": "local-market-operator.testnet"
+  },
+  "initial_local_balance_yocto_per_unique_account": "10000000000000000000000000",
+  "network": {
+    "chain_id_pattern": "nft-validation-local-<run-id>",
+    "genesis_height": null,
+    "genesis_block_hash": null,
+    "identity_status": "discover from the future isolated node; never substitute public genesis",
+    "rpc": "loopback socket of the owned isolated node only"
+  },
+  "artifact_sha256": {
+    "nft": "b8a500297d6e93bc79c3f06834d09f31bf384816301d179d1aabb425a6a4a84d",
+    "marketplace": "5f0b522306a87bc01beebe4c7575b8ae705785d38f003feae18eebfe2835708a"
+  },
+  "artifact_bytes": {
+    "nft": 484725,
+    "marketplace": 696681
+  },
+  "reference_public_protocol_snapshot": "rpc-snapshot.json",
+  "expected_storage_byte_cost_yocto": "10000000000000000000",
+  "tool_call_gas_cap": "300000000000000",
+  "local_fixture_expiry": "finite explicit test-window input required; no U64-max sentinel",
+  "signer_policy": "Future test-process generation/use of disposable local signers requires separate authorization; no existing credentials, private-key inspection/export, or public signing.",
+  "case_ids": [
+    "S01",
+    "S02",
+    "S03",
+    "S04",
+    "S05",
+    "S06",
+    "S07",
+    "S08",
+    "S09",
+    "S10",
+    "S11",
+    "S12",
+    "S13",
+    "S14",
+    "S15",
+    "S16",
+    "S17",
+    "L01",
+    "L02",
+    "L03"
+  ],
+  "real_node_cases_executed": [],
+  "supplemental_environment": "nearcore test-loop-tests at the same commit; simulated network/clock, separate from process-node evidence",
+  "public_manifest_sha256_before_node_planning": "f5ebc7d2c95c2711ca6a675e92252143fc5cec830770710d8c3c28837a5a96e5",
+  "required_tooling": [
+    "isolated runner crate",
+    "local-only launcher and genesis builder",
+    "local manifest and case action builder",
+    "submission journal and complete receipt collector",
+    "independent state/receipt/balance verifier",
+    "gas/storage calibration cases",
+    "optional reviewed TestLoop scheduling adapter"
+  ]
+}

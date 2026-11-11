@@ -1,0 +1,111 @@
+{
+  "status": "preparation_only_not_authorization",
+  "snapshot_height": 275815859,
+  "gas_price_burn_yocto_per_gas": "100000000",
+  "min_gas_purchase_price_yocto_per_gas": "1000000000",
+  "calculation_price_yocto_per_gas": "1000000000",
+  "storage_byte_cost_yocto": "10000000000000000000",
+  "limitations": [
+    "Based on snapshot protocol and gas prices; recheck immediately before any later transaction",
+    "Local VM gas and trie accounting exclude real node execution/receipt behavior",
+    "Attached deployment gas budgets apply to initialization; deploy action fees are additional",
+    "Candidate gas margin is 2x measured burn rounded up to Tgas; dispatch also covers child gas, local guard and host action fees",
+    "Expiry is still unset; final metadata/terms/manifest bytes require remeasurement before approval",
+    "No claim of node rollback, cross-shard delivery, OOG safety or key custody"
+  ],
+  "stages": {
+    "nft-deploy": {
+      "function_call_prepaid_gas": "6000000000000",
+      "top_level_receipt_and_call_fees_gas": "1196999957996",
+      "deploy_action_send_and_execution_gas": "34972082720675",
+      "prefunding_at_observed_purchase_price_yocto": "42169082678671000000000",
+      "tool_ceiling_300_tgas_prefunding_yocto": "336169082678671000000000"
+    },
+    "marketplace-deploy": {
+      "function_call_prepaid_gas": "6000000000000",
+      "top_level_receipt_and_call_fees_gas": "1197702041272",
+      "deploy_action_send_and_execution_gas": "50102761655183",
+      "prefunding_at_observed_purchase_price_yocto": "57300463696455000000000",
+      "tool_ceiling_300_tgas_prefunding_yocto": "351300463696455000000000"
+    },
+    "fund": {
+      "function_call_prepaid_gas": "17000000000000",
+      "top_level_receipt_and_call_fees_gas": "1198165705609",
+      "deploy_action_send_and_execution_gas": "0",
+      "prefunding_at_observed_purchase_price_yocto": "18198165705609000000000",
+      "tool_ceiling_300_tgas_prefunding_yocto": "301198165705609000000000"
+    },
+    "mint": {
+      "function_call_prepaid_gas": "5000000000000",
+      "top_level_receipt_and_call_fees_gas": "1207400840674",
+      "deploy_action_send_and_execution_gas": "0",
+      "prefunding_at_observed_purchase_price_yocto": "6207400840674000000000",
+      "tool_ceiling_300_tgas_prefunding_yocto": "301207400840674000000000"
+    },
+    "approve": {
+      "function_call_prepaid_gas": "4000000000000",
+      "top_level_receipt_and_call_fees_gas": "1201310643496",
+      "deploy_action_send_and_execution_gas": "0",
+      "prefunding_at_observed_purchase_price_yocto": "5201310643496000000000",
+      "tool_ceiling_300_tgas_prefunding_yocto": "301201310643496000000000"
+    },
+    "create": {
+      "function_call_prepaid_gas": "33000000000000",
+      "top_level_receipt_and_call_fees_gas": "1242793871815",
+      "deploy_action_send_and_execution_gas": "0",
+      "prefunding_at_observed_purchase_price_yocto": "34242793871815000000000",
+      "tool_ceiling_300_tgas_prefunding_yocto": "301242793871815000000000"
+    },
+    "dispatch": {
+      "function_call_prepaid_gas": "106000000000000",
+      "top_level_receipt_and_call_fees_gas": "1200362170165",
+      "deploy_action_send_and_execution_gas": "0",
+      "prefunding_at_observed_purchase_price_yocto": "107200362170165000000000",
+      "tool_ceiling_300_tgas_prefunding_yocto": "301200362170165000000000"
+    }
+  },
+  "funding": {
+    "nft": {
+      "account": "ahmed-nft-contract.testnet",
+      "balance_yocto": "10000000000000000000000000",
+      "code_bytes": 484725,
+      "code_stake_yocto": "4847250000000000000000000",
+      "account_code_initialized_storage_bytes": 485287,
+      "initialized_storage_stake_yocto": "4852870000000000000000000",
+      "storage_plus_candidate_gas_prefunding_yocto": "4895039082678671000000000",
+      "remaining_headroom_yocto": "5104960917321329000000000",
+      "sufficient_at_snapshot": true
+    },
+    "marketplace": {
+      "account": "ahmed-market-contract.testnet",
+      "balance_yocto": "10000000000000000000000000",
+      "code_bytes": 696681,
+      "code_stake_yocto": "6966810000000000000000000",
+      "account_code_initialized_storage_bytes": 697882,
+      "initialized_storage_stake_yocto": "6978820000000000000000000",
+      "storage_plus_candidate_gas_prefunding_yocto": "7036120463696455000000000",
+      "remaining_headroom_yocto": "2963879536303545000000000",
+      "sufficient_at_snapshot": true
+    },
+    "operator": {
+      "account": "ahmed-market-operator.testnet",
+      "balance_yocto": "10000000000000000000000000",
+      "existing_storage_stake_yocto": "1820000000000000000000",
+      "all_candidate_deposits_yocto": "82950000000000000000000",
+      "all_candidate_gas_prefunding_yocto": "171050033231759000000000",
+      "storage_plus_candidate_gas_and_deposits_yocto": "255820033231759000000000",
+      "remaining_headroom_yocto": "9744179966768241000000000",
+      "sufficient_at_snapshot": true
+    }
+  },
+  "offline_final_record_verification": {
+    "final_block": "offline-VM-only",
+    "generation": "1",
+    "attempt_nonce": "1",
+    "lifecycle": "completed",
+    "verification": "active",
+    "commercial_listing_enabled": false,
+    "reservation_remaining": "32800000000000000000000",
+    "reservation_staked": "32800000000000000000000"
+  }
+}

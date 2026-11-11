@@ -1,0 +1,3 @@
+[target.wasm32-unknown-unknown]
+# Build from contracts/nft so Cargo loads this NEAR Wasm configuration.
+rustflags = ["--cfg", "near", "-C", "target-feature=-reference-types,-multivalue,-simd128,-relaxed-simd,-atomics"]

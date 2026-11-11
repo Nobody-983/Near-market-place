@@ -1,0 +1,246 @@
+{
+  "block": {
+    "author": "validator.testnet",
+    "header": {
+      "height": 100,
+      "hash": "6RWmTYhXCzjMjoY3Mz1rfFcnBm8E6XeDDbFEPUA4sv1w"
+    },
+    "chunks": [
+      {
+        "chunk_hash": "CzPafxtJmM1FnRoasKWAVhceJzZzkz9RKUBQQ4kY9V1v",
+        "shard_id": 0,
+        "height_created": 100,
+        "height_included": 100
+      },
+      {
+        "chunk_hash": "J3KbUXF9YPu2eGnbDCACxGvmMDZMdP7acGYhVLHGu9y2",
+        "shard_id": 1,
+        "height_created": 100,
+        "height_included": 100
+      }
+    ]
+  },
+  "chunks": {
+    "CzPafxtJmM1FnRoasKWAVhceJzZzkz9RKUBQQ4kY9V1v": {
+      "author": "validator.testnet",
+      "header": {
+        "chunk_hash": "CzPafxtJmM1FnRoasKWAVhceJzZzkz9RKUBQQ4kY9V1v",
+        "shard_id": 0,
+        "height_created": 100,
+        "height_included": 100
+      },
+      "receipts": [],
+      "transactions": []
+    },
+    "J3KbUXF9YPu2eGnbDCACxGvmMDZMdP7acGYhVLHGu9y2": {
+      "author": "validator.testnet",
+      "header": {
+        "chunk_hash": "J3KbUXF9YPu2eGnbDCACxGvmMDZMdP7acGYhVLHGu9y2",
+        "shard_id": 1,
+        "height_created": 100,
+        "height_included": 100
+      },
+      "receipts": [],
+      "transactions": [
+        {
+          "hash": "GMUCDLHFJVvmZYXmPf9QeUVAt9r9hXcQP1yL5emPFnvx",
+          "signer_id": "buyer.testnet",
+          "public_key": "ed25519:HM7ax8jJf41JozvanXepzhtD45AeRFcwJQCuLXFuDkjA",
+          "nonce": 1,
+          "receiver_id": "market.testnet",
+          "actions": [
+            {
+              "FunctionCall": {
+                "method_name": "buy_nft",
+                "args": "eyJsaXN0aW5nX2lkIjoibmZ0LnRlc3RuZXR8dG9rZW4tMXxzZWxsZXIudGVzdG5ldHwxIn0=",
+                "gas": 300000000000000,
+                "deposit": "1000000000000000000000000"
+              }
+            }
+          ],
+          "signature": "ed25519:2Qe3ccPSdzPddk764vm5jt4yXcvXgYQz3WzGF3oXpZLuaRa6ggpD131nSSy3FRVPquCvxYqgMGtdum8TKX3dVqNk",
+          "priority_fee": 0
+        }
+      ]
+    }
+  },
+  "transaction": {
+    "final_execution_status": "FINAL",
+    "status": { "SuccessValue": "" },
+    "transaction": {
+      "hash": "GMUCDLHFJVvmZYXmPf9QeUVAt9r9hXcQP1yL5emPFnvx",
+      "signer_id": "buyer.testnet",
+      "public_key": "ed25519:HM7ax8jJf41JozvanXepzhtD45AeRFcwJQCuLXFuDkjA",
+      "nonce": 1,
+      "receiver_id": "market.testnet",
+      "actions": [
+        {
+          "FunctionCall": {
+            "method_name": "buy_nft",
+            "args": "eyJsaXN0aW5nX2lkIjoibmZ0LnRlc3RuZXR8dG9rZW4tMXxzZWxsZXIudGVzdG5ldHwxIn0=",
+            "gas": 300000000000000,
+            "deposit": "1000000000000000000000000"
+          }
+        }
+      ],
+      "signature": "ed25519:2Qe3ccPSdzPddk764vm5jt4yXcvXgYQz3WzGF3oXpZLuaRa6ggpD131nSSy3FRVPquCvxYqgMGtdum8TKX3dVqNk",
+      "priority_fee": 0
+    },
+    "transaction_outcome": {
+      "id": "GMUCDLHFJVvmZYXmPf9QeUVAt9r9hXcQP1yL5emPFnvx",
+      "block_hash": "6RWmTYhXCzjMjoY3Mz1rfFcnBm8E6XeDDbFEPUA4sv1w",
+      "proof": [],
+      "outcome": {
+        "logs": [],
+        "receipt_ids": ["e2XGEosf843XMiCJHvZufvHKyw419ZYibDBdVJQr9cB"],
+        "gas_burnt": 1,
+        "tokens_burnt": "1",
+        "executor_id": "buyer.testnet",
+        "status": { "SuccessReceiptId": "e2XGEosf843XMiCJHvZufvHKyw419ZYibDBdVJQr9cB" },
+        "metadata": { "version": 1, "gas_profile": null }
+      }
+    },
+    "receipts_outcome": [
+      {
+        "id": "e2XGEosf843XMiCJHvZufvHKyw419ZYibDBdVJQr9cB",
+        "block_hash": "9SP8Y3sVADWNN5QoEB5CsvPUE5HT4o8YfBaCnhLss87K",
+        "proof": [],
+        "outcome": {
+          "logs": [],
+          "receipt_ids": [
+            "8ZD92cLpoCEU46hPGFfk3VqZpU8s6DoQhZ4pCMqWwDT6",
+            "BoQHueiPH9e4C7fkxouV4tFpGZ4hK5fJhKQnPBWwPazS"
+          ],
+          "gas_burnt": 1,
+          "tokens_burnt": "1",
+          "executor_id": "market.testnet",
+          "status": { "SuccessReceiptId": "BoQHueiPH9e4C7fkxouV4tFpGZ4hK5fJhKQnPBWwPazS" },
+          "metadata": { "version": 3, "gas_profile": [] }
+        }
+      },
+      {
+        "id": "8ZD92cLpoCEU46hPGFfk3VqZpU8s6DoQhZ4pCMqWwDT6",
+        "block_hash": "3rEx3xmgLCRgUfSgueD71YNrJYQYNvhtkXaqVQxdmj4U",
+        "proof": [],
+        "outcome": {
+          "logs": ["EVENT_JSON:{\"standard\":\"nep171\",\"version\":\"1.0.0\",\"event\":\"nft_transfer\",\"data\":[{\"old_owner_id\":\"seller.testnet\",\"new_owner_id\":\"buyer.testnet\",\"token_ids\":[\"token-1\"]}]}"],
+          "receipt_ids": [],
+          "gas_burnt": 1,
+          "tokens_burnt": "1",
+          "executor_id": "nft.testnet",
+          "status": { "SuccessValue": "dHJ1ZQ==" },
+          "metadata": { "version": 3, "gas_profile": [] }
+        }
+      },
+      {
+        "id": "BoQHueiPH9e4C7fkxouV4tFpGZ4hK5fJhKQnPBWwPazS",
+        "block_hash": "Ayxj8iVFTJMzZa7estoTtuBKJaUNhoipaaM7WmTjkkiS",
+        "proof": [],
+        "outcome": {
+          "logs": [],
+          "receipt_ids": [],
+          "gas_burnt": 1,
+          "tokens_burnt": "1",
+          "executor_id": "market.testnet",
+          "status": { "SuccessValue": "" },
+          "metadata": { "version": 3, "gas_profile": [] }
+        }
+      }
+    ],
+    "receipts": [
+      {
+        "predecessor_id": "buyer.testnet",
+        "receiver_id": "market.testnet",
+        "receipt_id": "e2XGEosf843XMiCJHvZufvHKyw419ZYibDBdVJQr9cB",
+        "priority": 0,
+        "receipt": {
+          "Action": {
+            "signer_id": "buyer.testnet",
+            "signer_public_key": "ed25519:HM7ax8jJf41JozvanXepzhtD45AeRFcwJQCuLXFuDkjA",
+            "gas_price": "100000000",
+            "output_data_receivers": [],
+            "input_data_ids": [],
+            "actions": [
+              {
+                "FunctionCall": {
+                  "method_name": "buy_nft",
+                  "args": "eyJsaXN0aW5nX2lkIjoibmZ0LnRlc3RuZXR8dG9rZW4tMXxzZWxsZXIudGVzdG5ldHwxIn0=",
+                  "gas": 300000000000000,
+                  "deposit": "1000000000000000000000000"
+                }
+              }
+            ],
+            "is_promise_yield": false
+          }
+        }
+      },
+      {
+        "predecessor_id": "market.testnet",
+        "receiver_id": "nft.testnet",
+        "receipt_id": "8ZD92cLpoCEU46hPGFfk3VqZpU8s6DoQhZ4pCMqWwDT6",
+        "priority": 0,
+        "receipt": {
+          "Action": {
+            "signer_id": "buyer.testnet",
+            "signer_public_key": "ed25519:HM7ax8jJf41JozvanXepzhtD45AeRFcwJQCuLXFuDkjA",
+            "gas_price": "100000000",
+            "output_data_receivers": [
+              { "data_id": "HDgWEk2okmDdAFAVf6ffxGBH6F6vdLM1X3H5Fmaafe4S", "receiver_id": "market.testnet" }
+            ],
+            "input_data_ids": [],
+            "actions": [
+              {
+                "FunctionCall": {
+                  "method_name": "marketplace_transfer_approved",
+                  "args": "eyJleHBlY3RlZF9zZWxsZXJfaWQiOiJzZWxsZXIudGVzdG5ldCIsInRva2VuX2lkIjoidG9rZW4tMSIsImFwcHJvdmFsX2lkIjoiMSIsInJlY2VpdmVyX2lkIjoiYnV5ZXIudGVzdG5ldCJ9",
+                  "gas": 20000000000000,
+                  "deposit": "1"
+                }
+              }
+            ],
+            "is_promise_yield": false
+          }
+        }
+      },
+      {
+        "predecessor_id": "nft.testnet",
+        "receiver_id": "market.testnet",
+        "receipt_id": "F1LjFY79WBVaTiLJ2hExa7rTBwZJWvm38aB7prE6w1us",
+        "priority": 0,
+        "receipt": {
+          "Data": {
+            "data_id": "HDgWEk2okmDdAFAVf6ffxGBH6F6vdLM1X3H5Fmaafe4S",
+            "data": "dHJ1ZQ==",
+            "is_promise_resume": false
+          }
+        }
+      },
+      {
+        "predecessor_id": "market.testnet",
+        "receiver_id": "market.testnet",
+        "receipt_id": "BoQHueiPH9e4C7fkxouV4tFpGZ4hK5fJhKQnPBWwPazS",
+        "priority": 0,
+        "receipt": {
+          "Action": {
+            "signer_id": "buyer.testnet",
+            "signer_public_key": "ed25519:HM7ax8jJf41JozvanXepzhtD45AeRFcwJQCuLXFuDkjA",
+            "gas_price": "100000000",
+            "output_data_receivers": [],
+            "input_data_ids": ["HDgWEk2okmDdAFAVf6ffxGBH6F6vdLM1X3H5Fmaafe4S"],
+            "actions": [
+              {
+                "FunctionCall": {
+                  "method_name": "on_transfer_result",
+                  "args": "eyJzYWxlX2lkIjoibmZ0LnRlc3RuZXR8dG9rZW4tMXxzZWxsZXIudGVzdG5ldHwxfGJ1eWVyLnRlc3RuZXR8MSIsInNlbGxlcl9zaGFyZSI6Ijk5MDAwMDAwMDAwMDAwMDAwMDAwMDAwMCIsImZlZV9zaGFyZSI6IjEwMDAwMDAwMDAwMDAwMDAwMDAwMDAwIn0=",
+                  "gas": 60000000000000,
+                  "deposit": "0"
+                }
+              }
+            ],
+            "is_promise_yield": false
+          }
+        }
+      }
+    ]
+  }
+}

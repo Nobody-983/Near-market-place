@@ -1,10 +1,30 @@
 
 import { supabase } from "../lib/supabase";
+import { PREVIEW_LISTINGS } from "../lib/previewData";
+import { PREVIEW_DATA_ENABLED } from "../config/preview";
+import { validateNearAmount } from "../lib/near/utils";
+
+// Cast before JSON encoding; converting a decoded numeric price back to text loses precision.
+export const LISTING_SELECT_FIELDS = `
+  id, nft_id, seller_id, buyer_id, price::text, currency, status, network_id,
+  marketplace_contract_id, contract_sale_id, tx_hash, onchain_status, sold_at,
+  listing_tx_hash, cancellation_tx_hash, approval_id::text, listing_generation::text,
+  created_at, updated_at
+`;
+
+function validateListingPrice(listing) {
+  return { ...listing, price: validateNearAmount(listing.price, { allowZero: false }) };
+}
 
 const MARKETPLACE_TABLE = "marketplace_listings";
-const DEFAULT_CURRENCY = "NIM";
 const ACTIVE_STATUS = "active";
-const CANCELLED_STATUS = "cancelled";
+
+// Preview/demo listings are display-only and must stay opt-in. Real listings
+// are never replaced by demo rows, even when the catalog is empty or failing.
+export function selectMarketplaceListings(data, { previewEnabled = PREVIEW_DATA_ENABLED } = {}) {
+  if (Array.isArray(data) && data.length > 0) return data.map(validateListingPrice);
+  return previewEnabled ? PREVIEW_LISTINGS : [];
+}
 
 // ================= GET MARKETPLACE LISTINGS =================
 
@@ -12,7 +32,7 @@ export async function getMarketplaceListings() {
   const { data, error } = await supabase
     .from(MARKETPLACE_TABLE)
     .select(`
-      *,
+      ${LISTING_SELECT_FIELDS},
       nfts (
         id,
         name,
@@ -32,11 +52,11 @@ export async function getMarketplaceListings() {
     .order("created_at", { ascending: false });
 
   if (error) {
-    console.error("GET MARKETPLACE LISTINGS ERROR:", error);
-    throw error;
+    console.error("GET MARKETPLACE LISTINGS ERROR:", error.message);
+    throw new Error("Unable to load marketplace listings.");
   }
 
-  return data || [];
+  return selectMarketplaceListings(data);
 }
 
 // ================= GET CURRENT USER =================
@@ -59,121 +79,48 @@ async function getCurrentUser() {
   return user;
 }
 
-// ================= CREATE LISTING =================
+// Listing and cancellation writes are intentionally absent here. Only the
+// service-role catalog indexer may call publish_verified_listing or
+// cancel_verified_listing after verifying final NEAR receipts and historical
+// contract state. Browser code can only wait for those trusted projections.
 
-export async function createListing({
-  nft_id,
-  price,
-}) {
-  if (!nft_id) {
-    throw new Error("NFT ID is required.");
-  }
-
-  const numericPrice = Number(price);
-
-  if (
-    price === undefined ||
-    price === null ||
-    !Number.isFinite(numericPrice) ||
-    numericPrice <= 0
-  ) {
-    throw new Error("Please enter a valid price greater than zero.");
-  }
-
-  const user = await getCurrentUser();
-
-  /*
-   * Make sure the logged-in user is the current owner.
-   * The creator and current owner can be different after a sale.
-   */
-  const { data: ownership, error: ownershipError } = await supabase
-    .from("nft_ownership")
-    .select("nft_id, owner_id")
-    .eq("nft_id", nft_id)
-    .eq("owner_id", user.id)
-    .single();
-
-  if (ownershipError) {
-    console.error("CHECK NFT OWNERSHIP ERROR:", ownershipError);
-    throw ownershipError;
-  }
-
-  if (!ownership) {
-    throw new Error(
-      "You can only list NFTs that you currently own."
-    );
-  }
-
-  /*
-   * Prevent multiple active listings for the same NFT.
-   */
-  const { data: existingListing, error: existingError } =
-    await supabase
-      .from(MARKETPLACE_TABLE)
-      .select("id")
-      .eq("nft_id", nft_id)
-      .eq("status", ACTIVE_STATUS)
-      .maybeSingle();
-
-  if (existingError) {
-    console.error(
-      "CHECK EXISTING LISTING ERROR:",
-      existingError
-    );
-    throw existingError;
-  }
-
-  if (existingListing) {
-    throw new Error("This NFT is already listed for sale.");
-  }
-
+export async function getIndexedListingByTransaction(transactionHash) {
+  if (!transactionHash) throw new Error("Transaction hash is required.");
   const { data, error } = await supabase
     .from(MARKETPLACE_TABLE)
-    .insert({
-      nft_id,
-      seller_id: user.id,
-      price: numericPrice,
-      currency: DEFAULT_CURRENCY,
-      status: ACTIVE_STATUS,
-    })
-    .select()
-    .single();
-
-  if (error) {
-    console.error("CREATE LISTING ERROR:", error);
-    throw error;
-  }
-
-  return data;
+    .select(LISTING_SELECT_FIELDS)
+    .eq("listing_tx_hash", transactionHash)
+    .maybeSingle();
+  if (error) throw new Error("Unable to verify the indexed listing.");
+  return data ? validateListingPrice(data) : null;
 }
 
-// ================= CANCEL LISTING =================
-
-export async function cancelListing(listingId) {
-  if (!listingId) {
-    throw new Error("Listing ID is required.");
-  }
-
-  const user = await getCurrentUser();
-
+export async function getIndexedListingByContractId(contractListingId) {
+  if (!contractListingId) throw new Error("Contract listing ID is required.");
   const { data, error } = await supabase
     .from(MARKETPLACE_TABLE)
-    .update({
-      status: CANCELLED_STATUS,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", listingId)
-    .eq("seller_id", user.id)
-    .eq("status", ACTIVE_STATUS)
-    .select()
-    .single();
+    .select(LISTING_SELECT_FIELDS)
+    .eq("contract_sale_id", contractListingId)
+    .maybeSingle();
+  if (error) throw new Error("Unable to verify the indexed listing.");
+  return data ? validateListingPrice(data) : null;
+}
 
-  if (error) {
-    console.error("CANCEL LISTING ERROR:", error);
-    throw error;
+export async function waitForIndexedListing({
+  transactionHash,
+  contractListingId,
+  status,
+  timeoutMs = 45_000,
+}) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const listing = transactionHash
+      ? await getIndexedListingByTransaction(transactionHash)
+      : await getIndexedListingByContractId(contractListingId);
+    if (listing && (!status || listing.status === status)) return listing;
+    await new Promise((resolve) => setTimeout(resolve, 1500));
   }
-
-  return data;
+  return null;
 }
 
 // ================= GET USER LISTINGS =================
@@ -194,7 +141,7 @@ export async function getUserListings(userId) {
   const { data, error } = await supabase
     .from(MARKETPLACE_TABLE)
     .select(`
-      *,
+      ${LISTING_SELECT_FIELDS},
       nfts (
         id,
         name,
@@ -212,5 +159,5 @@ export async function getUserListings(userId) {
     throw error;
   }
 
-  return data || [];
+  return (data || []).map(validateListingPrice);
 }

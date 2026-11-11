@@ -1,0 +1,56 @@
+[package]
+name = "near-marketplace-runtime-prototype"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.99"
+publish = false
+description = "Disabled NEAR host-storage prototype; bootstrap and status only"
+
+[lints.rust]
+unexpected_cfgs = { level = "deny", check-cfg = ['cfg(near)'] }
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = []
+testnet = ["near-marketplace-foundation/testnet"]
+production = ["near-marketplace-foundation/production"]
+# Fault injection is excluded from both ordinary artifacts, and cannot coexist
+# with production. This is NOT a testnet activation or trading feature.
+test-hooks = []
+# Native Wasm execution harness only; never enable for a contract build.
+vm-tests = ["near-vm-runner/wasmtime_vm"]
+
+[dependencies]
+near-marketplace-foundation = { path = "..", version = "=0.1.0" }
+near-sdk = { version = "=5.30.0", features = ["deterministic-account-ids"] }
+near-sys = { version = "=0.4.0", features = ["deterministic-account-ids"] }
+borsh = { version = "=1.8.1", features = ["derive"] }
+
+[dev-dependencies]
+near-sdk = { version = "=5.30.0", features = ["unit-testing", "deterministic-account-ids"] }
+near-vm-runner = { version = "=0.38.0", default-features = false }
+near-parameters = "=0.38.0"
+near-primitives-core = "=0.38.0"
+wasmparser = "=0.254.0"
+
+[[test]]
+name = "wasm_runtime"
+required-features = ["vm-tests"]
+
+[profile.dev]
+debug = 0
+
+[profile.release]
+codegen-units = 1
+opt-level = "s"
+lto = true
+debug = false
+panic = "abort"
+overflow-checks = true
+
+[package.metadata.runtime-build]
+rustc-release = "1.99.1"
+target = "wasm32-unknown-unknown"
+sdk = "5.30.0"

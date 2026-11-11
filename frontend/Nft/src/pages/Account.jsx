@@ -13,7 +13,7 @@ function Account() {
     profile: walletProfile,
   } = useWallet();
 
-  const [user, setUser] = useState(walletUser);
+  const user = walletUser;
   const [profile, setProfile] = useState(walletProfile);
 
   const [loadingProfile, setLoadingProfile] = useState(true);
@@ -35,14 +35,16 @@ function Account() {
   // ==========================================
 
   useEffect(() => {
-    setUser(walletUser);
-    setProfile(walletProfile);
-
-    setUsername(walletProfile?.username || "");
-    setBio(walletProfile?.bio || "");
-
-    setLoadingProfile(false);
-  }, [walletUser, walletProfile]);
+    let active = true;
+    void Promise.resolve().then(() => {
+      if (!active) return;
+      setProfile(walletProfile);
+      setUsername(walletProfile?.username || "");
+      setBio(walletProfile?.bio || "");
+      setLoadingProfile(false);
+    });
+    return () => { active = false; };
+  }, [walletProfile]);
 
   // ==========================================
   // FALLBACK PROFILE LOAD
@@ -106,7 +108,7 @@ function Account() {
 
         setProfile({
           wallet_address: connectedWalletAddress,
-          display_name: `Nimiq ${clean.slice(0, 4)}...${clean.slice(-4)}`,
+          display_name: `NEAR ${clean.slice(0, 4)}...${clean.slice(-4)}`,
           username: `user_${clean.slice(2, 8).toLowerCase()}`,
         });
       } catch (err) {
@@ -139,7 +141,7 @@ function Account() {
   const displayName =
     profile?.display_name ||
     profile?.username ||
-    "Nimiq User";
+    "NEAR User";
 
   const currentUsername =
     profile?.username || "username";
@@ -320,7 +322,7 @@ function Account() {
       /*
        * Do not manually update the profile here.
        * disconnectWallet() handles:
-       * - Nimiq disconnect
+       * - NEAR disconnect
        * - Supabase logout
        * - localStorage cleanup
        * - React wallet state cleanup
@@ -372,7 +374,7 @@ function Account() {
   // ==========================================
 
   return (
-    <div className="min-h-screen bg-[#0b0b12] px-4 py-6 text-white sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-black px-4 py-6 text-white sm:px-6 lg:px-8">
 
       {/* HEADER */}
 
@@ -632,7 +634,7 @@ function Account() {
               </p>
 
               <p className="mt-1 text-sm text-gray-500">
-                Sign out of your Nimiq account
+                Sign out of your NEAR account
               </p>
 
             </div>
@@ -677,7 +679,7 @@ function Account() {
                 </h2>
 
                 <p className="mt-1 text-sm text-gray-500">
-                  Update your Nimiq profile.
+                  Update your NEAR profile.
                 </p>
 
               </div>

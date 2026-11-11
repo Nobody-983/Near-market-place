@@ -6,7 +6,7 @@ function DashboardLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   return (
-    <div className="min-h-screen bg-[#0b0b12] text-white">
+    <div className="min-h-screen bg-black text-white">
       <Sidebar
         isOpen={sidebarOpen}
         setIsOpen={setSidebarOpen}

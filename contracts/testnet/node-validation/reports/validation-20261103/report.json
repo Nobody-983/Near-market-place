@@ -1,0 +1,228 @@
+{
+  "schema": 2,
+  "date": "2026-11-03",
+  "scope": "validation infrastructure; no node execution",
+  "node_version": "2.14.0-rc.5",
+  "node_commit": "b7b4737cab46f17a6daa2ed694d7aebbd204363a",
+  "protocol": 88,
+  "node_executable_sha256": null,
+  "public_transactions": false,
+  "node_started": false,
+  "source_archive_sha256": "3c4254540a4bac8edf07c49ea07fcaf0bcbb59fe51afd2e37bad6ff036db3f99",
+  "blockers": [
+    "Pinned neard/TestLoop/exporter native builds NOT_RUN: local conservative resource policy requires 30 GiB free (24 GiB build allowance plus 6 GiB reserve), with approximately 29.6 GiB measured. Actual peak build usage is unmeasured.",
+    "TestLoop/exporter preflight also measured less than the local 6 GiB available-memory threshold.",
+    "Offline dependency resolution failed at missing addr2line 0.24.2. Dependencies were not downloaded for builds refused by resource admission.",
+    "L03 individual authenticated DataReceipt scheduling is not implemented."
+  ],
+  "checks": [
+    {
+      "name": "pinned_archive_and_git_source",
+      "status": "PASS",
+      "files_checked": 2482
+    },
+    {
+      "name": "reproducible_testloop_exporter_overlay",
+      "status": "PASS",
+      "extractions": 2,
+      "files_checked": 2485
+    },
+    {
+      "name": "rust_signer_build_test_clippy_fmt",
+      "status": "PASS",
+      "rust_tests": 1
+    },
+    {
+      "name": "python_tooling",
+      "status": "PASS",
+      "tests": 31,
+      "evidence_class": "synthetic-codecs-and-archived-VM-fixtures"
+    },
+    {
+      "name": "foundation_testnet",
+      "status": "PASS",
+      "tests": 81,
+      "doctests": 2
+    },
+    {
+      "name": "nft_testnet_native",
+      "status": "PASS",
+      "tests": 53
+    },
+    {
+      "name": "marketplace_runtime_testnet_native",
+      "status": "PASS",
+      "tests": 39
+    },
+    {
+      "name": "bubblewrap_disconnected_namespace",
+      "status": "PASS",
+      "detail": "/bin/true, outside outer sandbox; no node launched"
+    }
+  ],
+  "cases": [
+    {
+      "id": "S01",
+      "status": "NOT_RUN",
+      "implementation": "recipe_implemented_unverified",
+      "evidence_class": "standalone-sandbox",
+      "reason": "No compiled pinned native runtime executable; resource admission refused large build.",
+      "evidence": []
+    },
+    {
+      "id": "S02",
+      "status": "NOT_RUN",
+      "implementation": "recipe_implemented_unverified",
+      "evidence_class": "standalone-sandbox",
+      "reason": "No compiled pinned native runtime executable; resource admission refused large build.",
+      "evidence": []
+    },
+    {
+      "id": "S03",
+      "status": "NOT_RUN",
+      "implementation": "recipe_implemented_unverified",
+      "evidence_class": "standalone-sandbox",
+      "reason": "No compiled pinned native runtime executable; resource admission refused large build.",
+      "evidence": []
+    },
+    {
+      "id": "S04",
+      "status": "NOT_RUN",
+      "implementation": "recipe_implemented_unverified",
+      "evidence_class": "standalone-sandbox",
+      "reason": "No compiled pinned native runtime executable; resource admission refused large build.",
+      "evidence": []
+    },
+    {
+      "id": "S05",
+      "status": "NOT_RUN",
+      "implementation": "recipe_implemented_unverified",
+      "evidence_class": "standalone-sandbox",
+      "reason": "No compiled pinned native runtime executable; resource admission refused large build.",
+      "evidence": []
+    },
+    {
+      "id": "S06",
+      "status": "NOT_RUN",
+      "implementation": "recipe_implemented_unverified",
+      "evidence_class": "standalone-sandbox",
+      "reason": "No compiled pinned native runtime executable; resource admission refused large build.",
+      "evidence": []
+    },
+    {
+      "id": "S07",
+      "status": "NOT_RUN",
+      "implementation": "recipe_implemented_unverified",
+      "evidence_class": "standalone-sandbox",
+      "reason": "No compiled pinned native runtime executable; resource admission refused large build.",
+      "evidence": []
+    },
+    {
+      "id": "S08",
+      "status": "NOT_RUN",
+      "implementation": "recipe_implemented_unverified",
+      "evidence_class": "standalone-sandbox",
+      "reason": "No compiled pinned native runtime executable; resource admission refused large build.",
+      "evidence": []
+    },
+    {
+      "id": "S09",
+      "status": "NOT_RUN",
+      "implementation": "recipe_implemented_unverified",
+      "evidence_class": "standalone-sandbox",
+      "reason": "No compiled pinned native runtime executable; resource admission refused large build.",
+      "evidence": []
+    },
+    {
+      "id": "S10",
+      "status": "NOT_RUN",
+      "implementation": "recipe_implemented_unverified",
+      "evidence_class": "standalone-sandbox",
+      "reason": "No compiled pinned native runtime executable; resource admission refused large build.",
+      "evidence": [],
+      "remaining_coverage_gap": "Internal post-write OOG location cannot be established from current uninstrumented traces."
+    },
+    {
+      "id": "S11",
+      "status": "NOT_RUN",
+      "implementation": "recipe_implemented_unverified",
+      "evidence_class": "standalone-sandbox",
+      "reason": "No compiled pinned native runtime executable; resource admission refused large build.",
+      "evidence": []
+    },
+    {
+      "id": "S12",
+      "status": "NOT_RUN",
+      "implementation": "recipe_implemented_unverified",
+      "evidence_class": "standalone-sandbox",
+      "reason": "No compiled pinned native runtime executable; resource admission refused large build.",
+      "evidence": []
+    },
+    {
+      "id": "S13",
+      "status": "NOT_RUN",
+      "implementation": "recipe_implemented_unverified",
+      "evidence_class": "standalone-sandbox",
+      "reason": "No compiled pinned native runtime executable; resource admission refused large build.",
+      "evidence": []
+    },
+    {
+      "id": "S14",
+      "status": "NOT_RUN",
+      "implementation": "recipe_implemented_unverified",
+      "evidence_class": "standalone-sandbox",
+      "reason": "No compiled pinned native runtime executable; resource admission refused large build.",
+      "evidence": []
+    },
+    {
+      "id": "S15",
+      "status": "NOT_RUN",
+      "implementation": "recipe_implemented_unverified",
+      "evidence_class": "standalone-sandbox",
+      "reason": "No compiled pinned native runtime executable; resource admission refused large build.",
+      "evidence": []
+    },
+    {
+      "id": "S16",
+      "status": "NOT_RUN",
+      "implementation": "recipe_implemented_unverified",
+      "evidence_class": "standalone-sandbox",
+      "reason": "No compiled pinned native runtime executable; resource admission refused large build.",
+      "evidence": [],
+      "remaining_coverage_gap": "Pre-stop pending observation does not prove a callback remained queued in the stopped DB."
+    },
+    {
+      "id": "S17",
+      "status": "NOT_RUN",
+      "implementation": "recipe_implemented_unverified",
+      "evidence_class": "standalone-sandbox",
+      "reason": "No compiled pinned native runtime executable; resource admission refused large build.",
+      "evidence": []
+    },
+    {
+      "id": "L01",
+      "status": "NOT_RUN",
+      "implementation": "adapter_partially_implemented_unverified",
+      "evidence_class": "testloop-simulated-network",
+      "reason": "No compiled pinned native runtime executable; resource admission refused large build.",
+      "evidence": []
+    },
+    {
+      "id": "L02",
+      "status": "NOT_RUN",
+      "implementation": "adapter_partially_implemented_unverified",
+      "evidence_class": "testloop-simulated-network",
+      "reason": "No compiled pinned native runtime executable; resource admission refused large build.",
+      "evidence": []
+    },
+    {
+      "id": "L03",
+      "status": "NOT_RUN",
+      "implementation": "individual_delivery_control_missing",
+      "evidence_class": "testloop-simulated-network",
+      "reason": "No compiled pinned native runtime executable; resource admission refused large build.",
+      "evidence": [],
+      "remaining_coverage_gap": "Baseline does not provide individual dependency order/withholding control."
+    }
+  ]
+}

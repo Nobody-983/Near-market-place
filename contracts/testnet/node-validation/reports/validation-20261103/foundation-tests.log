@@ -1,0 +1,136 @@
+    Blocking waiting for file lock on package cache
+   Compiling version_check v0.9.5
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.27
+   Compiling winnow v1.0.4
+   Compiling hashbrown v0.17.1
+   Compiling generic-array v0.14.7
+   Compiling equivalent v1.0.3
+   Compiling typenum v1.20.1
+   Compiling toml_datetime v1.1.2+spec-1.1.0
+   Compiling indexmap v2.14.2
+   Compiling cfg_aliases v0.2.2
+   Compiling borsh v1.8.1
+   Compiling syn v3.0.9
+   Compiling once_cell v1.21.4
+   Compiling toml_parser v1.1.5+spec-1.1.0
+   Compiling crypto-common v0.1.7
+   Compiling block-buffer v0.10.4
+   Compiling digest v0.10.7
+   Compiling cpufeatures v0.2.17
+   Compiling toml_edit v0.25.17+spec-1.1.0
+   Compiling cfg-if v1.0.5
+   Compiling sha2 v0.10.9
+   Compiling proc-macro-crate v3.5.0
+   Compiling borsh-derive v1.8.1
+   Compiling near-account-id v3.0.0
+   Compiling near-marketplace-foundation v0.1.0 (/home/acknowlege/Desktop/nft-platform/contracts/marketplace)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 26.64s
+     Running unittests src/lib.rs (/home/acknowlege/Desktop/nft-platform/contracts/marketplace/target/debug/deps/near_marketplace_foundation-74e7796785f524d8)
+
+running 50 tests
+test ledger::tests::payment_attempt_exhaustion_cannot_reset_or_resend ... ok
+test ledger::tests::maintained_totals_match_independent_history_after_every_transition ... ok
+test ledger::tests::claim_id_exhaustion_rolls_back_the_entire_settlement_transition ... ok
+test persistence::storage::tests::corrupt_lengths_checksums_totals_and_cross_domain_records_fail_closed ... ok
+test persistence::storage::tests::checked_overflow_and_missing_records_cannot_reset_accounting ... ok
+test persistence::storage::tests::another_storage_account_and_a_second_refund_cannot_spend_the_same_credit ... ok
+test persistence::storage::tests::failed_expenditure_shortfall_and_fabricated_balance_changes_leave_no_writes ... ok
+test persistence::storage::tests::every_write_failure_rolls_back_storage_and_v1_root_in_memory_only ... ok
+test persistence::storage::tests::funding_metadata_cannot_spend_other_credits_or_invent_balance_deltas ... ok
+test persistence::storage::tests::failure_restores_debt_not_cash_and_payment_success_cannot_claim_a_refund ... ok
+test persistence::storage::tests::financial_hold_is_sticky_but_funded_completion_and_genuine_results_preserve_debt ... ok
+test persistence::storage::tests::funding_reservations_and_withdrawals_are_disjoint_and_replay_protected ... ok
+test persistence::storage::tests::funding_metadata_is_charged_once_in_fixed_width_and_survives_restart ... ok
+test persistence::storage::tests::legacy_and_dispatched_reservations_have_no_unused_release_capability ... ok
+test persistence::storage::tests::guarded_release_retains_stake_and_tombstone_and_never_spends_other_accounts ... ok
+test persistence::storage::tests::legacy_claims_reserves_unattributed_cash_and_capital_are_all_protected ... ok
+test persistence::storage::tests::guard_corruption_overflow_and_insolvency_fail_closed ... ok
+test ledger::tests::backing_checks_access_no_history_records_even_after_many_sales ... ok
+test persistence::storage::tests::principal_unknown_sale_and_all_v1_records_survive_storage_consumption ... ok
+test persistence::storage::tests::measured_consumption_moves_c_to_s_once_including_exact_reserve_exhaustion ... ok
+test persistence::storage::tests::root_revision_overflow_and_orphan_reservations_reject_even_zero_cost_updates ... ok
+test persistence::storage::tests::reserve_and_release_batches_are_bounded_atomic_and_restart_safe ... ok
+test persistence::tests::bootstrap_batch_preserves_v1_empty_root_and_cannot_replace_existing_state ... ok
+test persistence::tests::budgets_missing_abi_wrong_environment_and_all_public_actions_fail_closed ... ok
+test persistence::storage::tests::unknown_withdrawal_and_early_refund_remain_locked_until_exact_conclusive_result ... ok
+test persistence::tests::canonical_contexts_are_bounded_lossless_and_bind_every_encoded_field ... ok
+test persistence::tests::checksummed_invalid_constructor_values_and_length_bombs_are_rejected ... ok
+test persistence::storage::tests::reservation_lookup_and_batch_size_stay_bounded_with_history ... ok
+test persistence::tests::cross_domain_kind_and_identity_substitution_rejects ... ok
+test persistence::tests::every_write_failure_and_panic_rolls_back_records_totals_and_attempts ... ok
+test persistence::tests::failed_payment_retry_changes_attempt_and_rejects_old_callbacks_after_restart ... ok
+test persistence::tests::legacy_records_without_watermark_keep_their_existing_replay_barrier ... ok
+test persistence::tests::malformed_linked_records_and_global_bucket_mismatches_fail_before_writes ... ok
+test persistence::tests::operation_golden_vectors_match_independent_python_encoder ... ok
+test persistence::tests::orphan_claim_or_forged_intent_cannot_be_dispatched ... ok
+test persistence::tests::persistent_model_matches_existing_transition_rules_and_payload_encoding ... ok
+test persistence::tests::prepared_concurrent_purchases_and_cancel_cannot_both_commit ... ok
+test persistence::tests::recipient_amount_source_and_exact_approval_changes_change_intent_hash ... ok
+test persistence::tests::corruption_truncation_trailing_bytes_and_unknown_schemas_never_default ... ok
+test persistence::tests::retained_reserves_contributions_and_financial_hold_survive_reopen ... ok
+test persistence::tests::restart_preserves_consumed_approvals_paid_claims_unknown_attempts_and_totals ... ok
+test persistence::tests::root_revisions_and_ids_exhaust_without_partial_mutation ... ok
+test persistence::tests::unknown_transfer_preserves_commitment_principal_and_lock_across_restart ... ok
+test persistence::tests::stale_sets_duplicate_keys_and_changed_read_dependencies_reject_atomically ... ok
+test persistence::tests::watermark_is_preallocated_bounded_and_corruption_is_rejected ... ok
+test state::tests::generation_and_sale_exhaustion_leave_every_record_unchanged ... ok
+test persistence::tests::unverified_maximum_does_not_poison_watermark_after_cancel_invalid_or_restart ... ok
+test state::tests::principal_aggregate_overflow_does_not_lock_the_second_listing ... ok
+test persistence::tests::callback_permutations_after_restart_conserve_principal_and_never_pay_twice ... ok
+test persistence::tests::bounded_point_access_is_independent_of_retained_history ... ok
+
+test result: ok. 50 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.92s
+
+     Running tests/foundations.rs (/home/acknowlege/Desktop/nft-platform/contracts/marketplace/target/debug/deps/foundations-446d5d2163cd04d8)
+
+running 27 tests
+test arithmetic_overflow_and_unfunded_spends_do_not_mutate_state ... ok
+test cancellation_before_purchase_price_token_buyer_and_expiry_checks ... ok
+test contribution_rejects_fabricated_balance_delta_and_liability_reclassification ... ok
+test direct_custody_revocation_and_reapproval_cannot_activate_a_candidate ... ok
+test every_balance_partition_is_protected_and_reservation_cannot_be_reused ... ok
+test every_public_action_is_unconditionally_disabled ... ok
+test exact_shortfall_partial_and_surplus_contributions_preserve_principal ... ok
+test exhausted_approval_space_cannot_wrap_to_recreate_a_listing ... ok
+test expiration_verification_attempt_and_stale_listing_are_terminal ... ok
+test failed_payment_cannot_retry_without_actual_refund_liquidity_or_cooldown ... ok
+test failed_wrapper_creates_one_full_refund_and_new_listing_cannot_rewrite_it ... ok
+test fees_round_down_without_overflow_or_implicit_defaults ... ok
+test listing_requires_the_pinned_nft_seller_and_explicit_fee_snapshot ... ok
+test missing_payment_policy_cannot_dispatch ... ok
+test overlapping_beneficiaries_merge_and_zero_fee_creates_no_claim ... ok
+test cancellation_and_old_callbacks_cannot_resurrect_a_generation ... ok
+test buy_lock_excludes_second_buyer_cancel_and_new_listing ... ok
+test bounded_record_roundtrip_preserves_unknown_outcome_and_structured_token_identity ... ok
+test reserve_hard_floor_target_exhaustion_and_missing_policy_fail_closed ... ok
+test sequential_repairs_and_reserved_capital_shortfall_do_not_create_free_money ... ok
+test reserve_cannot_consume_purchase_principal_or_unattributed_cash ... ok
+test shortfall_hold_preserves_debt_allows_callbacks_and_never_auto_resumes ... ok
+test split_payments_preserve_paid_claims_when_other_recipient_fails ... ok
+test transfer_result_permutations_never_allocate_principal_twice ... ok
+test payment_callback_permutations_preserve_principal_and_terminal_claims ... ok
+test unknown_payment_never_resends_and_delayed_success_resolves_only_once ... ok
+test unknown_transfer_keeps_principal_and_lock_until_matching_normal_callback ... ok
+
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/isolation.rs (/home/acknowlege/Desktop/nft-platform/contracts/marketplace/target/debug/deps/isolation-e016de15d366be5b)
+
+running 4 tests
+test environment_is_selected_by_artifact_not_runtime_config ... ok
+test identity_verification_fails_closed_on_missing_mode_or_mismatch ... ok
+test missing_inventory_category_or_zero_fingerprint_rejects ... ok
+test shared_production_resources_reject_in_every_category ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+   Doc-tests near_marketplace_foundation
+
+running 2 tests
+test src/lib.rs - (line 15) - compile fail ... ok
+test src/lib.rs - (line 10) - compile fail ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
+

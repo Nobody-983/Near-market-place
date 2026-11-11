@@ -1,0 +1,43 @@
+{
+  "extractions": 2,
+  "provenance": {
+    "archive_sha256": "3c4254540a4bac8edf07c49ea07fcaf0bcbb59fe51afd2e37bad6ff036db3f99",
+    "changes": [
+      "test-loop-tests/Cargo.toml",
+      "test-loop-tests/src/nft_validation.rs",
+      "test-loop-tests/src/nft_validation_lib.rs",
+      "core/store/src/bin/nft-receipt-exporter.rs"
+    ],
+    "compilation_status": "NOT_RUN",
+    "overlay_files": {
+      "core/store/src/bin/nft-receipt-exporter.rs": "c45067161e8915e57959483eb6fd6abcc9be1f95eb682444cf4d2efd4ff5e1e8",
+      "test-loop-tests/Cargo.toml": "6c42217ddb065381e6f148b21ea4661ed2ce38d163dde95ae3bda71ec5984b58",
+      "test-loop-tests/src/nft_validation.rs": "99a8d4aaec36baa1c194b932a78fec442f29b9e10f0dc2d7025bd244d9acafff",
+      "test-loop-tests/src/nft_validation_lib.rs": "6b6fc9d33c3f14709ef00dfe4e4e3e738421aa7a59e0402b1f540c70b60b2218"
+    },
+    "overlay_sha256": "99a8d4aaec36baa1c194b932a78fec442f29b9e10f0dc2d7025bd244d9acafff",
+    "runtime_status": "NOT_RUN",
+    "source_commit": "b7b4737cab46f17a6daa2ed694d7aebbd204363a",
+    "verified_tree": {
+      "archive_sha256": "3c4254540a4bac8edf07c49ea07fcaf0bcbb59fe51afd2e37bad6ff036db3f99",
+      "files": 2485,
+      "source_commit": "b7b4737cab46f17a6daa2ed694d7aebbd204363a",
+      "tree_manifest_sha256": "22af519805a5cc2bbb71138c7aa408db6e70d012a817297e68b3be966cad0b3c"
+    }
+  },
+  "source_checks": [
+    {
+      "archive_sha256": "3c4254540a4bac8edf07c49ea07fcaf0bcbb59fe51afd2e37bad6ff036db3f99",
+      "files": 2485,
+      "source_commit": "b7b4737cab46f17a6daa2ed694d7aebbd204363a",
+      "tree_manifest_sha256": "22af519805a5cc2bbb71138c7aa408db6e70d012a817297e68b3be966cad0b3c"
+    },
+    {
+      "archive_sha256": "3c4254540a4bac8edf07c49ea07fcaf0bcbb59fe51afd2e37bad6ff036db3f99",
+      "files": 2485,
+      "source_commit": "b7b4737cab46f17a6daa2ed694d7aebbd204363a",
+      "tree_manifest_sha256": "22af519805a5cc2bbb71138c7aa408db6e70d012a817297e68b3be966cad0b3c"
+    }
+  ],
+  "status": "PASS"
+}

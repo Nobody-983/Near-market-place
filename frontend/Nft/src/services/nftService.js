@@ -1,4 +1,12 @@
 import { supabase } from "../lib/supabase";
+import { validateNearAmount } from "../lib/near/utils";
+
+// Keep every NFT field while returning numeric prices as lossless JSON strings.
+export const NFT_SELECT_FIELDS = `
+  id, creator_id, name, description, image_url, image_path, category, price::text,
+  currency, source, network_id, token_id, nft_contract_id, mint_tx_hash,
+  onchain_status, created_at, updated_at
+`;
 
 const BUCKET_NAME = "nft-images";
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
@@ -15,6 +23,41 @@ const ALLOWED_EXTENSIONS = [
   "jpeg",
   "webp",
 ];
+
+const UUID_PATTERN =
+  "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+const IMAGE_PATH_PATTERN = new RegExp(
+  `^(${UUID_PATTERN})/${UUID_PATTERN}\\.(png|jpg|jpeg|webp)$`
+);
+
+function getNFTImageReference(filePath, userId) {
+  const match = typeof filePath === "string" && filePath.match(IMAGE_PATH_PATTERN);
+
+  if (!match || match[0] !== filePath || match[1] !== userId) {
+    throw new Error("IMAGE ERROR: Invalid storage path for the current user.");
+  }
+
+  const { data } = supabase.storage.from(BUCKET_NAME).getPublicUrl(filePath);
+
+  if (!data?.publicUrl) {
+    throw new Error("STORAGE ERROR: Could not generate public URL.");
+  }
+
+  return { filePath, publicUrl: data.publicUrl };
+}
+
+function getNFTImageReferenceFromUrl(imageUrl, userId) {
+  // The configured client supplies the trusted origin AND bucket prefix.
+  // Compare the raw URL so traversal, encoding and query variants are rejected.
+  const { data } = supabase.storage.from(BUCKET_NAME).getPublicUrl("");
+  const bucketUrl = data?.publicUrl;
+
+  if (!bucketUrl || typeof imageUrl !== "string" || !imageUrl.startsWith(bucketUrl)) {
+    throw new Error("IMAGE ERROR: Image URL must belong to the configured nft-images bucket.");
+  }
+
+  return getNFTImageReference(imageUrl.slice(bucketUrl.length), userId);
+}
 
 // ---------------------------------------------
 // Validate image
@@ -112,55 +155,7 @@ export async function uploadNFTImage(file, userId) {
   const fileName = generateFileName(file);
   const filePath = `${userId}/${fileName}`;
 
-  // ---------------------------------------------
-  // Confirm authenticated Supabase connection
-  // ---------------------------------------------
-  try {
-    const {
-      data: sessionData,
-      error: sessionError,
-    } = await supabase.auth.getSession();
-
-    if (sessionError) {
-      throw new Error(
-        `SESSION CHECK FAILED: ${sessionError.message}`
-      );
-    }
-
-    const accessToken =
-      sessionData?.session?.access_token;
-
-    if (!accessToken) {
-      throw new Error(
-        "SESSION CHECK FAILED: No access token available."
-      );
-    }
-
-    const response = await fetch(
-      "https://asjwpgomjnpvhkjajvlc.supabase.co/storage/v1/bucket",
-      {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          apikey:
-            import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-        },
-      }
-    );
-
-    const responseText = await response.text();
-
-    if (!response.ok) {
-      throw new Error(
-        `SUPABASE CONNECTION FAILED: status=${response.status}, response=${responseText}`
-      );
-    }
-  } catch (error) {
-    throw new Error(
-      error?.message ||
-        `SUPABASE CONNECTION FAILED: ${String(error)}`
-    );
-  }
+  const imageReference = getNFTImageReference(filePath, user.id);
 
   // ---------------------------------------------
   // Actual Storage upload
@@ -183,35 +178,18 @@ export async function uploadNFTImage(file, userId) {
       );
     }
 
-    if (!data?.path) {
+    if (data?.path !== imageReference.filePath) {
       throw new Error(
-        "STORAGE ERROR: Upload succeeded but no file path was returned."
+        "STORAGE ERROR: Upload did not return the expected file path."
       );
     }
 
-    // ---------------------------------------------
-    // Generate public URL
-    // ---------------------------------------------
-    const {
-      data: publicUrlData,
-    } = supabase.storage
-      .from(BUCKET_NAME)
-      .getPublicUrl(filePath);
-
-    if (!publicUrlData?.publicUrl) {
-      throw new Error(
-        "STORAGE ERROR: Could not generate public URL."
-      );
-    }
-
-    return {
-      publicUrl: publicUrlData.publicUrl,
-      filePath: data.path,
-    };
+    return imageReference;
   } catch (error) {
     throw new Error(
       error?.message ||
-        `IMAGE UPLOAD FAILED: ${String(error)}`
+        `IMAGE UPLOAD FAILED: ${String(error)}`,
+      { cause: error }
     );
   }
 }
@@ -237,7 +215,8 @@ export async function deleteNFTImage(filePath) {
   } catch (error) {
     throw new Error(
       error?.message ||
-        `IMAGE DELETE FAILED: ${String(error)}`
+        `IMAGE DELETE FAILED: ${String(error)}`,
+      { cause: error }
     );
   }
 }
@@ -250,10 +229,12 @@ export async function createNFT({
   description,
   image_url,
   category,
-  price,
+  price = "0",
 }) {
   try {
+    const validatedPrice = validateNearAmount(price);
     const user = await getAuthenticatedUser();
+    const imageReference = getNFTImageReferenceFromUrl(image_url, user.id);
 
     const {
       data,
@@ -264,12 +245,13 @@ export async function createNFT({
         creator_id: user.id,
         name,
         description,
-        image_url,
+        image_url: imageReference.publicUrl,
+        image_path: imageReference.filePath,
         category,
-        price,
-        currency: "NIM",
+        price: validatedPrice,
+        currency: "NEAR",
       })
-      .select()
+      .select(NFT_SELECT_FIELDS)
       .single();
 
     if (error) {
@@ -284,11 +266,12 @@ export async function createNFT({
       );
     }
 
-    return data;
+    return { ...data, price: validateNearAmount(data.price) };
   } catch (error) {
     throw new Error(
       error?.message ||
-        `NFT DATABASE INSERT FAILED: ${String(error)}`
+        `NFT DATABASE INSERT FAILED: ${String(error)}`,
+      { cause: error }
     );
   }
 }
@@ -296,6 +279,20 @@ export async function createNFT({
 // ---------------------------------------------
 // Delete NFT
 // ---------------------------------------------
+export function getNFTDeletionError(nft, userId) {
+  if (!userId) return "Connect and verify your wallet before deleting an NFT.";
+  if (nft?.creator_id !== userId || nft?.owner_id !== userId) {
+    return "Only NFTs you created and still own can be deleted.";
+  }
+  if (nft.source !== "user") return "Only user-created NFT entries can be deleted.";
+  if (nft.token_id !== null || nft.nft_contract_id !== null) {
+    return "Only unminted NFT entries can be deleted.";
+  }
+  if (!Array.isArray(nft.listing_history)) return "Reload the NFT's listing history before deleting it.";
+  if (nft.listing_history.length > 0) return "NFTs with listing history cannot be deleted, even after cancellation.";
+  return "";
+}
+
 export async function deleteNFT(nft) {
   if (!nft?.id) {
     throw new Error(
@@ -313,11 +310,15 @@ export async function deleteNFT(nft) {
     }
 
     const {
+      data: deleted,
       error: dbError,
     } = await supabase
       .from("nfts")
       .delete()
-      .eq("id", nft.id);
+      .eq("id", nft.id)
+      .eq("creator_id", user.id)
+      .select("id")
+      .maybeSingle();
 
     if (dbError) {
       throw new Error(
@@ -325,15 +326,18 @@ export async function deleteNFT(nft) {
       );
     }
 
-    if (nft.image_path) {
-      await deleteNFTImage(nft.image_path);
+    if (deleted?.id !== nft.id) {
+      throw new Error("NFT was not deleted. It may no longer exist or be ineligible for deletion. Reload and try again.");
     }
 
+    // Storage is append-only for browsers. Retained artwork needs trusted cleanup;
+    // a forbidden cleanup request must not turn a confirmed deletion into a failure.
     return true;
   } catch (error) {
     throw new Error(
       error?.message ||
-        `DELETE NFT FAILED: ${String(error)}`
+        `DELETE NFT FAILED: ${String(error)}`,
+      { cause: error }
     );
   }
 }

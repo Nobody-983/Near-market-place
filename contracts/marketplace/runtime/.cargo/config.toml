@@ -1,0 +1,4 @@
+[target.wasm32-unknown-unknown]
+# Conservative NEAR Wasm output. The build script runs from this package so
+# Cargo loads this configuration; native test builds are unaffected.
+rustflags = ["--cfg", "near", "-C", "target-feature=-reference-types,-multivalue,-simd128,-relaxed-simd"]

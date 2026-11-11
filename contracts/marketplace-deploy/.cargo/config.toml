@@ -1,0 +1,3 @@
+[target.wasm32-unknown-unknown]
+# Keep marketplace Wasm compatible with the reviewed NEAR runtime target.
+rustflags = ["--cfg", "near", "-C", "target-feature=-reference-types,-multivalue,-simd128,-relaxed-simd,-atomics"]

@@ -63,7 +63,7 @@ function TopBar() {
             {/* Notification dot */}
             <span
               className="absolute right-2 top-2 h-2 w-2 rounded-full
-              bg-purple-500 ring-2 ring-[#111119]"
+              bg-purple-500 ring-2 ring-[color:var(--near-surface)]"
             />
 
           </button>

@@ -1,0 +1,25 @@
+{
+  "status": "candidate_requires_human_approval",
+  "purpose": "Test-only ownership and NFT approval verification on fresh dedicated testnet accounts",
+  "commercial_policy": false,
+  "price_yocto": "1",
+  "price_basis": "Lowest positive integer accepted by ListingTerms; a codec sentinel, not an offer or valuation",
+  "fee_bps": "0",
+  "fee_cap_bps": "0",
+  "fee_basis": "FeeTerms accepts 0 <= rate <= cap < 10000; zero exercises explicit no-fee terms",
+  "fee_account": "ahmed-market-operator.testnet",
+  "fee_account_basis": "Existing separate test operator; required codec identity, not a treasury designation",
+  "policy_version": "1",
+  "policy_version_basis": "Lowest nonzero policy version accepted by ListingTerms",
+  "expiry": null,
+  "expiry_basis": "Human must approve an absolute future nanosecond timestamp covering the entire integration window",
+  "generation": "1",
+  "generation_basis": "Required first generation in the fresh-account runbook",
+  "funding_nonce": "0",
+  "funding_nonce_basis": "Lowest valid U64 nonce; candidate for the first funding on a fresh deployment only",
+  "restrictions": [
+    "No commercial listing, purchase, withdrawal or public approval-hook intake",
+    "No transfer",
+    "Admission allocation and replay records remain retained without a completed-reservation release path"
+  ]
+}

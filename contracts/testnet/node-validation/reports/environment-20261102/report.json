@@ -1,0 +1,149 @@
+{
+  "blockers": [
+    "node executable incompatible: /opt/near-sandbox: /lib/x86_64-linux-gnu/libc.so.6: version `GLIBC_2.39' not found (required by /opt/near-sandbox)\n"
+  ],
+  "cases": [
+    {
+      "evidence_class": "standalone-sandbox",
+      "id": "S01",
+      "implementation": "recipe_implemented",
+      "reason": "node executable incompatible: /opt/near-sandbox: /lib/x86_64-linux-gnu/libc.so.6: version `GLIBC_2.39' not found (required by /opt/near-sandbox)\n",
+      "status": "NOT_RUN"
+    },
+    {
+      "evidence_class": "standalone-sandbox",
+      "id": "S02",
+      "implementation": "recipe_implemented",
+      "reason": "node executable incompatible: /opt/near-sandbox: /lib/x86_64-linux-gnu/libc.so.6: version `GLIBC_2.39' not found (required by /opt/near-sandbox)\n",
+      "status": "NOT_RUN"
+    },
+    {
+      "evidence_class": "standalone-sandbox",
+      "id": "S03",
+      "implementation": "recipe_implemented",
+      "reason": "node executable incompatible: /opt/near-sandbox: /lib/x86_64-linux-gnu/libc.so.6: version `GLIBC_2.39' not found (required by /opt/near-sandbox)\n",
+      "status": "NOT_RUN"
+    },
+    {
+      "evidence_class": "standalone-sandbox",
+      "id": "S04",
+      "implementation": "recipe_implemented",
+      "reason": "node executable incompatible: /opt/near-sandbox: /lib/x86_64-linux-gnu/libc.so.6: version `GLIBC_2.39' not found (required by /opt/near-sandbox)\n",
+      "status": "NOT_RUN"
+    },
+    {
+      "evidence_class": "standalone-sandbox",
+      "id": "S05",
+      "implementation": "recipe_implemented",
+      "reason": "node executable incompatible: /opt/near-sandbox: /lib/x86_64-linux-gnu/libc.so.6: version `GLIBC_2.39' not found (required by /opt/near-sandbox)\n",
+      "status": "NOT_RUN"
+    },
+    {
+      "evidence_class": "standalone-sandbox",
+      "id": "S06",
+      "implementation": "recipe_implemented",
+      "reason": "node executable incompatible: /opt/near-sandbox: /lib/x86_64-linux-gnu/libc.so.6: version `GLIBC_2.39' not found (required by /opt/near-sandbox)\n",
+      "status": "NOT_RUN"
+    },
+    {
+      "evidence_class": "standalone-sandbox",
+      "id": "S07",
+      "implementation": "recipe_implemented",
+      "reason": "node executable incompatible: /opt/near-sandbox: /lib/x86_64-linux-gnu/libc.so.6: version `GLIBC_2.39' not found (required by /opt/near-sandbox)\n",
+      "status": "NOT_RUN"
+    },
+    {
+      "evidence_class": "standalone-sandbox",
+      "id": "S08",
+      "implementation": "recipe_implemented",
+      "reason": "node executable incompatible: /opt/near-sandbox: /lib/x86_64-linux-gnu/libc.so.6: version `GLIBC_2.39' not found (required by /opt/near-sandbox)\n",
+      "status": "NOT_RUN"
+    },
+    {
+      "evidence_class": "standalone-sandbox",
+      "id": "S09",
+      "implementation": "recipe_implemented",
+      "reason": "node executable incompatible: /opt/near-sandbox: /lib/x86_64-linux-gnu/libc.so.6: version `GLIBC_2.39' not found (required by /opt/near-sandbox)\n",
+      "status": "NOT_RUN"
+    },
+    {
+      "evidence_class": "standalone-sandbox",
+      "id": "S10",
+      "implementation": "recipe_implemented",
+      "reason": "node executable incompatible: /opt/near-sandbox: /lib/x86_64-linux-gnu/libc.so.6: version `GLIBC_2.39' not found (required by /opt/near-sandbox)\n",
+      "status": "NOT_RUN"
+    },
+    {
+      "evidence_class": "standalone-sandbox",
+      "id": "S11",
+      "implementation": "recipe_implemented",
+      "reason": "node executable incompatible: /opt/near-sandbox: /lib/x86_64-linux-gnu/libc.so.6: version `GLIBC_2.39' not found (required by /opt/near-sandbox)\n",
+      "status": "NOT_RUN"
+    },
+    {
+      "evidence_class": "standalone-sandbox",
+      "id": "S12",
+      "implementation": "recipe_implemented",
+      "reason": "node executable incompatible: /opt/near-sandbox: /lib/x86_64-linux-gnu/libc.so.6: version `GLIBC_2.39' not found (required by /opt/near-sandbox)\n",
+      "status": "NOT_RUN"
+    },
+    {
+      "evidence_class": "standalone-sandbox",
+      "id": "S13",
+      "implementation": "recipe_implemented",
+      "reason": "node executable incompatible: /opt/near-sandbox: /lib/x86_64-linux-gnu/libc.so.6: version `GLIBC_2.39' not found (required by /opt/near-sandbox)\n",
+      "status": "NOT_RUN"
+    },
+    {
+      "evidence_class": "standalone-sandbox",
+      "id": "S14",
+      "implementation": "recipe_implemented",
+      "reason": "node executable incompatible: /opt/near-sandbox: /lib/x86_64-linux-gnu/libc.so.6: version `GLIBC_2.39' not found (required by /opt/near-sandbox)\n",
+      "status": "NOT_RUN"
+    },
+    {
+      "evidence_class": "standalone-sandbox",
+      "id": "S15",
+      "implementation": "recipe_implemented",
+      "reason": "node executable incompatible: /opt/near-sandbox: /lib/x86_64-linux-gnu/libc.so.6: version `GLIBC_2.39' not found (required by /opt/near-sandbox)\n",
+      "status": "NOT_RUN"
+    },
+    {
+      "evidence_class": "standalone-sandbox",
+      "id": "S16",
+      "implementation": "recipe_implemented",
+      "reason": "node executable incompatible: /opt/near-sandbox: /lib/x86_64-linux-gnu/libc.so.6: version `GLIBC_2.39' not found (required by /opt/near-sandbox)\n",
+      "status": "NOT_RUN"
+    },
+    {
+      "evidence_class": "standalone-sandbox",
+      "id": "S17",
+      "implementation": "recipe_implemented",
+      "reason": "node executable incompatible: /opt/near-sandbox: /lib/x86_64-linux-gnu/libc.so.6: version `GLIBC_2.39' not found (required by /opt/near-sandbox)\n",
+      "status": "NOT_RUN"
+    },
+    {
+      "evidence_class": "testloop-simulated-network",
+      "id": "L01",
+      "implementation": "adapter_not_implemented",
+      "reason": "No pinned TestLoop build or reviewed scheduling/delivery adapter; L01-L03 are not implemented by the Sandbox recipes",
+      "status": "NOT_RUN"
+    },
+    {
+      "evidence_class": "testloop-simulated-network",
+      "id": "L02",
+      "implementation": "adapter_not_implemented",
+      "reason": "No pinned TestLoop build or reviewed scheduling/delivery adapter; L01-L03 are not implemented by the Sandbox recipes",
+      "status": "NOT_RUN"
+    },
+    {
+      "evidence_class": "testloop-simulated-network",
+      "id": "L03",
+      "implementation": "adapter_not_implemented",
+      "reason": "No pinned TestLoop build or reviewed scheduling/delivery adapter; L01-L03 are not implemented by the Sandbox recipes",
+      "status": "NOT_RUN"
+    }
+  ],
+  "public_transactions": false,
+  "schema": 1
+}

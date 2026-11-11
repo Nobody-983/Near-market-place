@@ -9,6 +9,7 @@ import {
   Gamepad,
   ImagePlus,
 } from "lucide-react";
+import ThemeToggle from "./themeToggle";
 
 const navigation = [
   {
@@ -81,7 +82,7 @@ function Sidebar({ isOpen, setIsOpen }) {
           fixed left-0 top-0 z-50
           flex h-screen flex-col
           border-r border-white/10
-          bg-[#0b0b12]
+          bg-black
           text-white
           shadow-xl
           transition-[width,transform]
@@ -113,7 +114,7 @@ function Sidebar({ isOpen, setIsOpen }) {
                   ${isOpen ? "text-2xl" : "text-xl"}
                 `}
               >
-                {isOpen ? "Nimiq" : "N"}
+                {isOpen ? "NEAR" : "N"}
               </h1>
 
               {isOpen && (
@@ -207,6 +208,10 @@ function Sidebar({ isOpen, setIsOpen }) {
               );
             })}
           </nav>
+        </div>
+
+        <div className="shrink-0 border-t border-white/5 py-4">
+          <ThemeToggle inline compact={!isOpen} />
         </div>
       </aside>
     </>

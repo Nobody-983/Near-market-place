@@ -9,6 +9,10 @@ import {
 
 import { useWallet } from "../context/walletContext";
 import { supabase } from "../lib/supabase";
+import { PREVIEW_NFTS } from "../lib/previewData";
+import { PREVIEW_DATA_ENABLED } from "../config/preview";
+import { validateNearAmount } from "../lib/near/utils";
+import { useNFTLikes } from "../hooks/useNFTLikes";
 
 // =====================================================
 // DASHBOARD
@@ -22,8 +26,7 @@ function Dashboard() {
   const [currentSlide, setCurrentSlide] = useState(0);
   const [trendingNFTs, setTrendingNFTs] = useState([]);
   const [loadingTrending, setLoadingTrending] = useState(true);
-  const [userLikes, setUserLikes] = useState(new Set());
-  const [likingNFT, setLikingNFT] = useState(null);
+  const { likedNFTs: userLikes, loadingLikes, likingNFT, likeError, toggleLike } = useNFTLikes();
   const [userProfile, setUserProfile] = useState(profile || null);
 
   // =====================================================
@@ -35,7 +38,7 @@ function Dashboard() {
     userProfile?.display_name ||
     user?.user_metadata?.full_name ||
     user?.user_metadata?.name ||
-    "Nimiq User";
+    "NEAR User";
 
   const userAvatar =
     userProfile?.avatar_url ||
@@ -66,7 +69,7 @@ function Dashboard() {
           description,
           image_url,
           category,
-          price,
+          price::text,
           currency,
           creator_id,
           created_at,
@@ -91,7 +94,7 @@ function Dashboard() {
         error: likesError,
       } = await supabase
         .from("nft_likes")
-        .select("nft_id, user_id");
+        .select("nft_id");
 
       if (likesError) {
         throw likesError;
@@ -110,20 +113,6 @@ function Dashboard() {
 
         likeCounts[like.nft_id] += 1;
       });
-
-      // -------------------------------------------------
-      // FIND CURRENT USER LIKES
-      // -------------------------------------------------
-
-      const currentUserLikes = new Set(
-        (likes || [])
-          .filter(
-            (like) => like.user_id === user?.id
-          )
-          .map((like) => like.nft_id)
-      );
-
-      setUserLikes(currentUserLikes);
 
       // -------------------------------------------------
       // FORMAT REAL NFT DATA
@@ -148,7 +137,7 @@ function Dashboard() {
 
           creator: creatorName,
 
-          price: nft.price ?? 0,
+          price: validateNearAmount(nft.price),
 
           likes: likeCounts[nft.id] || 0,
         };
@@ -180,15 +169,33 @@ function Dashboard() {
           rank: index + 1,
         }));
 
-      setTrendingNFTs(rankedNFTs);
-    } catch (error) {
-      console.error(
-        "Trending NFT error:",
-        error
+      setTrendingNFTs(
+        rankedNFTs.length > 0 || !PREVIEW_DATA_ENABLED
+          ? rankedNFTs
+          : PREVIEW_NFTS.map((nft, index) => ({
+              ...nft,
+              image: nft.image_url,
+              creator: nft.profiles?.display_name || "Creator",
+              likes: 12 - index * 2,
+              rank: index + 1,
+            })),
       );
-
-      setTrendingNFTs([]);
-      setUserLikes(new Set());
+    } catch (error) {
+      if (PREVIEW_DATA_ENABLED) {
+        console.warn("Using preview trending NFTs (demo mode):", error.message);
+        setTrendingNFTs(
+          PREVIEW_NFTS.map((nft, index) => ({
+            ...nft,
+            image: nft.image_url,
+            creator: nft.profiles?.display_name || "Creator",
+            likes: 12 - index * 2,
+            rank: index + 1,
+          }))
+        );
+      } else {
+        console.error("LOAD TRENDING NFTS ERROR:", error.message);
+        setTrendingNFTs([]);
+      }
     } finally {
       setLoadingTrending(false);
     }
@@ -199,7 +206,7 @@ function Dashboard() {
   // =====================================================
 
   useEffect(() => {
-    fetchTrendingNFTs();
+    void Promise.resolve().then(fetchTrendingNFTs);
   }, [user?.id]);
 
   // =====================================================
@@ -207,12 +214,12 @@ function Dashboard() {
   // =====================================================
 
   useEffect(() => {
-    if (!user?.id) {
-      setUserProfile(null);
-      return;
-    }
-
+    let active = true;
     const fetchProfile = async () => {
+      if (!user?.id) {
+        if (active) setUserProfile(null);
+        return;
+      }
       const {
         data,
         error,
@@ -232,10 +239,10 @@ function Dashboard() {
         return;
       }
 
-      setUserProfile(data);
+      if (active) setUserProfile(data);
     };
-
-    fetchProfile();
+    void Promise.resolve().then(fetchProfile);
+    return () => { active = false; };
   }, [user?.id]);
 
   // =====================================================
@@ -292,60 +299,9 @@ function Dashboard() {
       return;
     }
 
-    if (likingNFT === nftId) {
-      return;
-    }
-
-    const alreadyLiked = userLikes.has(nftId);
-
-    try {
-      setLikingNFT(nftId);
-
-      // -------------------------------------------------
-      // UNLIKE
-      // -------------------------------------------------
-
-      if (alreadyLiked) {
-        const { error } = await supabase
-          .from("nft_likes")
-          .delete()
-          .eq("nft_id", nftId)
-          .eq("user_id", user.id);
-
-        if (error) {
-          throw error;
-        }
-      }
-
-      // -------------------------------------------------
-      // LIKE
-      // -------------------------------------------------
-
-      else {
-        const { error } = await supabase
-          .from("nft_likes")
-          .insert({
-            nft_id: nftId,
-            user_id: user.id,
-          });
-
-        if (error && error.code !== "23505") {
-          throw error;
-        }
-      }
-
-      // -------------------------------------------------
-      // REFRESH REAL DATA
-      // -------------------------------------------------
-
+    const result = await toggleLike(nftId);
+    if (result) {
       await fetchTrendingNFTs();
-    } catch (error) {
-      console.error(
-        "Like error:",
-        error
-      );
-    } finally {
-      setLikingNFT(null);
     }
   };
 
@@ -419,7 +375,7 @@ function Dashboard() {
 
                 <p className="mt-5 max-w-lg text-sm leading-6 text-gray-400 sm:text-base">
                   {heroNFT.description ||
-                    "Discover unique digital collectibles created by the Nimiq community."}
+                    "Discover unique digital collectibles created by the NEAR community."}
                 </p>
 
                 <div className="mt-7 flex flex-wrap gap-3">
@@ -598,6 +554,10 @@ function Dashboard() {
               </div>
             )}
 
+          {likeError && (
+            <p role="alert" className="mb-4 text-sm text-red-400">{likeError}</p>
+          )}
+
           {!loadingTrending &&
             trendingNFTs.length > 0 && (
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -607,7 +567,7 @@ function Dashboard() {
                     nft={nft}
                     liked={userLikes.has(nft.id)}
                     liking={
-                      likingNFT === nft.id
+                      loadingLikes || !!likingNFT
                     }
                     onLike={() =>
                       handleLike(nft.id)
@@ -674,6 +634,7 @@ function NFTCard({
             onLike();
           }}
           disabled={liking}
+          aria-pressed={liked}
           className={`absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full backdrop-blur transition-all duration-200 hover:scale-110 ${
             liked
               ? "bg-purple-600 text-white"
@@ -737,7 +698,7 @@ function NFTCard({
             </p>
 
             <p className="mt-1 font-semibold">
-              {nft.price} {nft.currency || "NIM"}
+              {nft.price} {nft.currency || "NEAR"}
             </p>
           </div>
 

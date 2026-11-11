@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components -- animation variants are intentionally colocated with their wrappers */
 import { motion } from "framer-motion";
 
 export const fadeUp = {

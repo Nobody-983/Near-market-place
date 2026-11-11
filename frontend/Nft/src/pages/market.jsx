@@ -11,6 +11,7 @@ import { useNavigate } from "react-router-dom";
 
 import { getMarketplaceListings } from "../services/marketService";
 import { supabase } from "../lib/supabase";
+import { useNFTLikes } from "../hooks/useNFTLikes";
 
 const categories = [
   "All",
@@ -27,9 +28,9 @@ function Marketplace() {
   const [search, setSearch] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("All");
 
-  const [likedNFTs, setLikedNFTs] = useState(new Set());
+  const { likedNFTs, loadingLikes, likingNFT, likeError, toggleLike: updateLike } = useNFTLikes();
   const [likeCounts, setLikeCounts] = useState({});
-  const [likingNFT, setLikingNFT] = useState(null);
+  const [likesReadError, setLikesReadError] = useState("");
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -42,34 +43,24 @@ function Marketplace() {
     try {
       const { data: likes, error: likesError } = await supabase
         .from("nft_likes")
-        .select("nft_id, user_id");
+        .select("nft_id");
 
-      if (likesError) {
-        console.error("LOAD LIKES ERROR:", likesError);
-        return;
-      }
+      if (likesError) throw likesError;
 
       const counts = {};
-      const userLiked = new Set();
-
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
 
       likes?.forEach((like) => {
         const id = String(like.nft_id);
 
         counts[id] = (counts[id] || 0) + 1;
 
-        if (user && like.user_id === user.id) {
-          userLiked.add(id);
-        }
       });
 
       setLikeCounts(counts);
-      setLikedNFTs(userLiked);
+      setLikesReadError("");
     } catch (err) {
       console.error("LOAD LIKES ERROR:", err);
+      setLikesReadError("Unable to load like counts.");
     }
   };
 
@@ -104,110 +95,12 @@ function Marketplace() {
   // =====================================================
 
   const toggleLike = async (nftId) => {
-    const id = String(nftId);
-
-    if (likingNFT === id) {
-      return;
-    }
-
-    try {
-      setLikingNFT(id);
-
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      if (!user) {
-        setError(
-          "Please connect your Nimiq wallet to like NFTs."
-        );
-        return;
-      }
-
-      const currentlyLiked = likedNFTs.has(id);
-
-      // =================================================
-      // UNLIKE
-      // =================================================
-
-      if (currentlyLiked) {
-        setLikedNFTs((previous) => {
-          const updated = new Set(previous);
-          updated.delete(id);
-          return updated;
-        });
-
-        setLikeCounts((previous) => ({
-          ...previous,
-          [id]: Math.max(0, (previous[id] || 0) - 1),
-        }));
-
-        const { error: deleteError } = await supabase
-          .from("nft_likes")
-          .delete()
-          .eq("nft_id", nftId)
-          .eq("user_id", user.id);
-
-        if (deleteError) {
-          console.error("UNLIKE ERROR:", deleteError);
-
-          setLikedNFTs((previous) => {
-            const updated = new Set(previous);
-            updated.add(id);
-            return updated;
-          });
-
-          setLikeCounts((previous) => ({
-            ...previous,
-            [id]: (previous[id] || 0) + 1,
-          }));
-
-          return;
-        }
-
-        return;
-      }
-
-      // =================================================
-      // LIKE
-      // =================================================
-
-      setLikedNFTs((previous) => {
-        const updated = new Set(previous);
-        updated.add(id);
-        return updated;
-      });
-
+    const result = await updateLike(nftId);
+    if (result) {
       setLikeCounts((previous) => ({
         ...previous,
-        [id]: (previous[id] || 0) + 1,
+        [nftId]: Math.max(0, (previous[nftId] || 0) + result.change),
       }));
-
-      const { error: insertError } = await supabase
-        .from("nft_likes")
-        .insert({
-          nft_id: nftId,
-          user_id: user.id,
-        });
-
-      if (insertError) {
-        console.error("LIKE INSERT ERROR:", insertError);
-
-        setLikedNFTs((previous) => {
-          const updated = new Set(previous);
-          updated.delete(id);
-          return updated;
-        });
-
-        setLikeCounts((previous) => ({
-          ...previous,
-          [id]: Math.max(0, (previous[id] || 0) - 1),
-        }));
-      }
-    } catch (err) {
-      console.error("TOGGLE LIKE ERROR:", err);
-    } finally {
-      setLikingNFT(null);
     }
   };
 
@@ -244,7 +137,7 @@ function Marketplace() {
   });
 
   return (
-    <div className="min-h-screen bg-[#0b0b12] px-4 py-6 text-white sm:px-6">
+    <div className="min-h-screen bg-black px-4 py-6 text-white sm:px-6">
 
       {/* HEADER */}
 
@@ -332,6 +225,12 @@ function Marketplace() {
 
       {/* NFT GRID */}
 
+      {(likeError || likesReadError) && (
+        <p role="alert" className="mb-4 text-sm text-red-400">
+          {likeError || likesReadError}
+        </p>
+      )}
+
       {!loading &&
         !error &&
         filteredItems.length > 0 && (
@@ -380,7 +279,8 @@ function Marketplace() {
                     <button
                       type="button"
                       onClick={() => toggleLike(nftId)}
-                      disabled={likingNFT === id}
+                      disabled={loadingLikes || !!likingNFT}
+                      aria-pressed={isLiked}
                       aria-label={
                         isLiked
                           ? "Unlike NFT"
@@ -451,7 +351,7 @@ function Marketplace() {
                         </p>
 
                         <p className="mt-1 text-base font-semibold">
-                          {item.price} {item.currency}
+                          {item.price} {item.currency || "NEAR"}
                         </p>
                       </div>
 

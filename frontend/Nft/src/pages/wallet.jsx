@@ -1,33 +1,27 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Wallet as WalletIcon,
   Copy,
   Check,
-  ArrowUpRight,
-  ArrowDownLeft,
   Loader2,
   RefreshCw,
-  X,
-  AlertTriangle,
 } from "lucide-react";
 
 import { useWallet } from "../context/walletContext";
+import { shortenAccountId, yoctoToNear } from "../lib/near/utils";
 import {
-  formatNimiqAddress,
-  shortenAddress,
-  cleanAddress,
-  sendNIMTransaction,
-  formatNim,
-  lunaToNim,
-  getMaxSendableNim,
-  isValidNimiqAddress,
-} from "../lib/nimiq";
-import {
-  NIMIQ_NETWORK_LABEL,
-  PAY_TESTNET_HINT,
-  TESTNET_FAUCET_URL,
-  getTestnetExplorerTxUrl,
-} from "../lib/nimiq-network";
+  marketplaceBuyerRefund,
+  marketplaceFeeProceeds,
+  marketplaceSellerProceeds,
+  marketplaceStorageBalance,
+  marketplaceTransactions,
+  requireConnectedAccount,
+  transactionHash,
+  waitForFinal,
+  withdrawFeesOnChain,
+  withdrawProceedsOnChain,
+  withdrawRefundOnChain,
+} from "../lib/near/contract.js";
 
 function Wallet() {
   const {
@@ -38,35 +32,53 @@ function Wallet() {
     disconnectWallet,
     profile,
     balance,
-    balanceWarning,
-    consensus,
-    blockNumber,
+    error,
     refreshBalance,
-    nimiq,
     networkHint,
+    selector,
   } = useWallet();
 
   const [copied, setCopied] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
+  const [marketplace, setMarketplace] = useState(null);
+  const [marketplaceError, setMarketplaceError] = useState("");
+  const [withdrawing, setWithdrawing] = useState("");
 
-  const [showReceiveModal, setShowReceiveModal] = useState(false);
-  const [showSendModal, setShowSendModal] = useState(false);
+  const refreshMarketplace = useCallback(async () => {
+    if (!walletAddress || !isConnected || !selector) return;
+    try {
+      const wallet = { selector, accountId: walletAddress };
+      await requireConnectedAccount(walletAddress, wallet);
+      const [sellerProceeds, feeProceeds, buyerRefund, storage, transactions] = await Promise.all([
+        marketplaceSellerProceeds(walletAddress, wallet),
+        marketplaceFeeProceeds(walletAddress, wallet),
+        marketplaceBuyerRefund(walletAddress, wallet),
+        marketplaceStorageBalance(walletAddress, wallet),
+        marketplaceTransactions(wallet, "0", 50),
+      ]);
+      await requireConnectedAccount(walletAddress, wallet);
+      setMarketplace({
+        sellerProceeds, feeProceeds, buyerRefund, storage,
+        transactions: (transactions || []).filter((item) =>
+          item.buyer === walletAddress || item.seller === walletAddress || item.fee_recipient === walletAddress
+        ).reverse(),
+      });
+      setMarketplaceError("");
+    } catch (err) {
+      setMarketplace(null);
+      setMarketplaceError(err?.message || "Marketplace contract is not available yet.");
+    }
+  }, [isConnected, selector, walletAddress]);
 
-  const [sendRecipient, setSendRecipient] = useState("");
-  const [sendAmount, setSendAmount] = useState("");
-  const [sendMessage, setSendMessage] = useState("");
-  const [sending, setSending] = useState(false);
-  const [sendTxHash, setSendTxHash] = useState("");
-
-  // Auto-refresh balance when wallet is available
   useEffect(() => {
-    if (!walletAddress) return;
-    refreshBalance(walletAddress);
-  }, [walletAddress, refreshBalance]);
+    if (!walletAddress) return undefined;
+    const timer = window.setTimeout(() => {
+      void refreshBalance(walletAddress);
+      void refreshMarketplace();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [walletAddress, refreshBalance, refreshMarketplace]);
 
-  // Copy address to clipboard
   const handleCopy = async () => {
     if (!walletAddress) return;
     try {
@@ -78,608 +90,180 @@ function Wallet() {
     }
   };
 
-  // Manual balance refresh
   const handleManualRefresh = async () => {
     if (!walletAddress || refreshing) return;
     setRefreshing(true);
-    setError("");
-
     try {
-      await refreshBalance(walletAddress);
-    } catch (err) {
-      console.error("REFRESH BALANCE ERROR:", err);
-      setError("Failed to refresh wallet balance.");
+      await Promise.all([refreshBalance(walletAddress), refreshMarketplace()]);
     } finally {
       setTimeout(() => setRefreshing(false), 600);
     }
   };
 
-  // Open modals
-  const handleOpenReceive = () => {
-    if (!walletAddress) {
-      setError("Please connect your Nimiq testnet wallet first.");
-      return;
-    }
-    setError("");
-    setShowReceiveModal(true);
-  };
-
-  const handleOpenSend = () => {
-    if (!walletAddress) {
-      setError("Please connect your Nimiq testnet wallet first.");
-      return;
-    }
-    setError("");
-    setSuccess("");
-    setSendTxHash("");
-    setSendRecipient("");
-    setSendAmount("");
-    setSendMessage("");
-    setShowSendModal(true);
-  };
-
-  // Execute transaction
-  const handleExecuteSend = async (e) => {
-    e.preventDefault();
-    setError("");
-    setSuccess("");
-
-    if (!walletAddress) {
-      setError("Please connect your Nimiq testnet wallet first.");
-      return;
-    }
-
-    if (!nimiq) {
-      setError(networkHint || PAY_TESTNET_HINT);
-      return;
-    }
-
-    const cleanRecip = cleanAddress(sendRecipient);
-    if (!isValidNimiqAddress(cleanRecip)) {
-      setError("Please enter a valid Nimiq recipient address starting with NQ.");
-      return;
-    }
-
-    const numAmount = Number(sendAmount);
-    if (!Number.isFinite(numAmount) || numAmount <= 0) {
-      setError("Please enter an amount greater than 0 NIM.");
-      return;
-    }
-
-    const availableNim = lunaToNim(balance);
-    if (numAmount > availableNim) {
-      setError("Insufficient testnet NIM balance.");
-      return;
-    }
-
-    setSending(true);
-
+  const withdrawMarketplaceBalance = async (kind, amount, saleId = undefined) => {
+    if (!selector || !walletAddress || withdrawing) return;
+    setWithdrawing(kind === "refund" ? saleId : kind);
     try {
-      const txHash = await sendNIMTransaction(nimiq, {
-        recipient: cleanRecip,
-        valueInNim: numAmount,
-        data: sendMessage.trim() || null,
-      });
-
-      setSendTxHash(txHash || "Transaction submitted");
-      setSuccess("Testnet transaction broadcasted successfully!");
-
-      setTimeout(() => {
-        if (walletAddress) {
-          refreshBalance(walletAddress);
-        }
-      }, 3000);
+      const wallet = { selector, accountId: walletAddress };
+      await requireConnectedAccount(walletAddress, wallet);
+      const result = kind === "seller"
+        ? await withdrawProceedsOnChain(amount, wallet)
+        : kind === "fee"
+          ? await withdrawFeesOnChain(amount, wallet)
+          : await withdrawRefundOnChain(saleId, wallet);
+      const txHash = transactionHash(result);
+      if (!txHash) throw new Error("Wallet did not return a withdrawal transaction hash.");
+      const finalResult = await waitForFinal(txHash, walletAddress, wallet);
+      if (finalResult?.status?.Failure) throw new Error("Marketplace withdrawal failed.");
+      await requireConnectedAccount(walletAddress, wallet);
+      await Promise.all([refreshBalance(walletAddress), refreshMarketplace()]);
     } catch (err) {
-      console.error("SEND TESTNET NIM ERROR:", err);
-      setError(err?.message || "Failed to complete the testnet transaction.");
+      setMarketplaceError(err?.message || "Unable to withdraw marketplace balance.");
     } finally {
-      setSending(false);
+      setWithdrawing("");
     }
   };
 
-  const shortWalletAddress = walletAddress
-    ? shortenAddress(walletAddress, 6, 6)
-    : "No wallet connected";
-
-  const formattedFullAddress = walletAddress
-    ? formatNimiqAddress(walletAddress)
-    : "";
+  const shortWalletAddress = walletAddress ? shortenAccountId(walletAddress) : "No wallet connected";
 
   return (
-    <div className="min-h-screen bg-[#0b0b12] px-4 py-6 text-white sm:px-6 lg:px-8">
-      {/* HEADER */}
+    <div className="min-h-screen bg-black px-4 py-6 text-white sm:px-6 lg:px-8">
       <div className="mb-8">
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-3xl font-bold tracking-tight">Wallet</h1>
-          <span className="rounded-full border border-yellow-500/20 bg-yellow-500/10 px-3 py-1 text-xs font-semibold text-yellow-400">
+          <span className="rounded-full border border-[#00EC97]/20 bg-[#00EC97]/10 px-3 py-1 text-xs font-semibold text-[#00EC97]">
             TESTNET
           </span>
         </div>
         <p className="mt-1 text-sm text-gray-400">
-          Manage your {NIMIQ_NETWORK_LABEL} wallet, balance and transactions.
+          Manage your NEAR Testnet wallet, balance and transactions.
         </p>
       </div>
 
-      <div className="max-w-4xl space-y-6">
-        {/* NOTIFICATIONS */}
-        {error && (
-          <div className="flex items-center justify-between rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400">
-            <span>{error}</span>
-            <button
-              type="button"
-              onClick={() => setError("")}
-              className="text-red-400 transition hover:text-red-300"
-            >
-              <X size={16} />
-            </button>
-          </div>
-        )}
-
-        {success && (
-          <div className="flex items-center justify-between rounded-xl border border-green-500/20 bg-green-500/10 px-4 py-3 text-sm text-green-400">
-            <span>{success}</span>
-            <button
-              type="button"
-              onClick={() => setSuccess("")}
-              className="text-green-400 transition hover:text-green-300"
-            >
-              <X size={16} />
-            </button>
-          </div>
-        )}
-
-        {/* TESTNET NOTICE */}
-        <div className="rounded-xl border border-yellow-500/20 bg-yellow-500/10 px-4 py-3">
-          <div className="flex items-start gap-3">
-            <div className="mt-0.5 h-2.5 w-2.5 shrink-0 rounded-full bg-yellow-400" />
-            <div>
-              <p className="text-sm font-medium text-yellow-300">
-                {NIMIQ_NETWORK_LABEL} only
-              </p>
-              <p className="mt-1 text-xs text-yellow-400/70">
-                Mainnet seed gateways are disabled. Testnet NIM has no real-world
-                value. {PAY_TESTNET_HINT}
-              </p>
-            </div>
-          </div>
+      {!isConnected ? (
+        <div className="mx-auto max-w-md rounded-2xl border border-zinc-800 bg-zinc-900/50 p-8 text-center">
+          <WalletIcon className="mx-auto mb-4 h-12 w-12 text-[#00EC97]" />
+          <h2 className="mb-2 text-xl font-semibold">Connect Your NEAR Wallet</h2>
+          <p className="mb-6 text-sm text-gray-400">
+            Connect your NEAR wallet to view your balance and make transactions
+          </p>
+          <button
+            onClick={connectWallet}
+            disabled={walletLoading}
+            className="w-full rounded-xl bg-gradient-to-r from-[#00EC97] to-[#00C781] px-6 py-3 font-semibold text-black transition-all hover:shadow-lg hover:shadow-[#00EC97]/20 disabled:opacity-50"
+          >
+            {walletLoading ? <Loader2 className="mx-auto h-5 w-5 animate-spin" /> : "Connect Wallet"}
+          </button>
+          {error && <p className="mt-4 text-sm text-red-400">{error}</p>}
         </div>
-
-        {/* BALANCE DIAGNOSTIC WARNING */}
-        {balanceWarning && (
-          <div className="flex items-start gap-3 rounded-xl border border-orange-500/30 bg-orange-500/10 px-4 py-3 text-sm text-orange-300">
-            <AlertTriangle size={18} className="mt-0.5 shrink-0" />
-            <span>{balanceWarning}</span>
-          </div>
-        )}
-
-        {/* WALLET BALANCE CARD */}
-        <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-purple-600/30 to-white/[0.03] p-6">
-          <div className="flex items-center justify-between text-gray-400">
-            <div className="flex items-center gap-3">
-              <WalletIcon size={20} className="text-purple-400" />
-              <span className="text-sm">Testnet Wallet Balance</span>
-            </div>
-
-            {walletAddress && (
-              <button
-                type="button"
-                onClick={handleManualRefresh}
-                disabled={refreshing}
-                title="Refresh balance"
-                className="rounded-lg p-1.5 text-gray-400 transition hover:bg-white/10 hover:text-white disabled:opacity-50"
-              >
-                <RefreshCw
-                  size={16}
-                  className={refreshing ? "animate-spin text-purple-400" : ""}
-                />
-              </button>
-            )}
-          </div>
-
-          <div className="mt-5">
-            <h2 className="text-4xl font-bold tracking-tight">
-              {walletAddress
-                ? `${formatNim(balance, 5)} NIM`
-                : "0.00 NIM"}
-            </h2>
-            <p className="mt-2 text-sm text-gray-400">
-              {walletAddress
-                ? "Nimiq Testnet account balance"
-                : "Connect your Nimiq wallet to view your testnet balance"}
-            </p>
-          </div>
-
-          <div className="mt-6 flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-2">
-              <div
-                className={`h-2.5 w-2.5 rounded-full ${
-                  walletAddress ? "bg-green-400" : "bg-gray-600"
-                }`}
-              />
-              <span className="text-sm text-gray-400">
-                {walletAddress ? "Wallet connected" : "No wallet connected"}
-              </span>
-            </div>
-
-            {consensus && (
-              <span className="rounded-full border border-green-500/20 bg-green-500/10 px-2.5 py-0.5 text-xs text-green-300">
-                Testnet Synced
-              </span>
-            )}
-
-            {blockNumber !== null && blockNumber !== undefined && (
-              <span className="text-xs text-gray-500">
-                Block #{Number(blockNumber).toLocaleString()}
-              </span>
-            )}
-          </div>
-        </div>
-
-        {/* USER WALLET ACCOUNT */}
-        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
-          <div className="mb-4 flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-400">Your Wallet Account</p>
-              <p className="mt-1 text-xs text-gray-500">
-                Connected to your Nimiq testnet wallet
-              </p>
-            </div>
-            <WalletIcon size={20} className="text-purple-400" />
-          </div>
-
-          {walletLoading ? (
-            <div className="flex items-center gap-2 rounded-xl bg-black/20 px-4 py-4 text-sm text-gray-400">
-              <Loader2 size={17} className="animate-spin text-purple-400" />
-              Loading wallet...
-            </div>
-          ) : walletAddress ? (
-            <>
-              <div className="rounded-xl border border-white/10 bg-black/20 p-4">
-                <p className="mb-2 text-xs text-gray-500">Testnet Wallet Address</p>
-                <div className="flex items-center gap-3">
-                  <p className="min-w-0 flex-1 truncate font-mono text-sm text-white">
-                    {shortWalletAddress}
-                  </p>
-                  <button
-                    type="button"
-                    onClick={handleCopy}
-                    className="shrink-0 rounded-lg bg-white/[0.06] p-2 text-gray-400 transition hover:bg-white/[0.1] hover:text-white"
-                    aria-label="Copy wallet address"
-                  >
-                    {copied ? (
-                      <Check size={17} className="text-green-400" />
-                    ) : (
-                      <Copy size={17} />
-                    )}
+      ) : (
+        <div className="space-y-6">
+          <div className="rounded-2xl border border-zinc-800 bg-gradient-to-br from-zinc-900 to-black p-6">
+            <div className="mb-4 flex items-start justify-between">
+              <div>
+                <p className="mb-1 text-sm text-gray-400">Account ID</p>
+                <div className="flex items-center gap-2">
+                  <p className="font-mono text-lg">{shortWalletAddress}</p>
+                  <button onClick={handleCopy} className="rounded-lg p-1 hover:bg-zinc-800">
+                    {copied ? <Check className="h-4 w-4 text-[#00EC97]" /> : <Copy className="h-4 w-4" />}
                   </button>
                 </div>
+                {profile?.display_name && <p className="mt-1 text-sm text-gray-400">{profile.display_name}</p>}
               </div>
-
-              <div className="mt-3">
-                <p className="break-all font-mono text-xs text-gray-500">
-                  {formattedFullAddress}
-                </p>
-              </div>
-
-              {copied && (
-                <p className="mt-2 text-xs text-green-400">
-                  Wallet address copied to clipboard!
-                </p>
-              )}
-            </>
-          ) : (
-            <div className="rounded-xl border border-white/10 bg-black/20 p-5">
-              <p className="text-sm text-gray-400">
-                You don't have a wallet connected yet.
-              </p>
-              <p className="mt-1 text-xs text-gray-500">
-                Connect your Nimiq wallet to start using testnet NIM.
-              </p>
-
               <button
-                type="button"
-                onClick={connectWallet}
-                disabled={walletLoading}
-                className="mt-4 flex items-center gap-2 rounded-xl bg-purple-600 px-4 py-2.5 text-sm font-semibold transition hover:bg-purple-700 disabled:opacity-50"
-              >
-                {walletLoading ? (
-                  <>
-                    <Loader2 size={16} className="animate-spin" />
-                    Connecting...
-                  </>
-                ) : (
-                  <>
-                    <WalletIcon size={16} />
-                    Connect Nimiq Wallet
-                  </>
-                )}
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* ACTIONS */}
-        <div className="grid grid-cols-2 gap-4">
-          <button
-            type="button"
-            onClick={handleOpenReceive}
-            className="flex items-center justify-center gap-2 rounded-xl bg-purple-600 py-3 font-medium transition hover:bg-purple-700"
-          >
-            <ArrowDownLeft size={18} />
-            Receive
-          </button>
-
-          <button
-            type="button"
-            onClick={handleOpenSend}
-            className="flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] py-3 font-medium transition hover:bg-white/[0.08]"
-          >
-            <ArrowUpRight size={18} />
-            Send
-          </button>
-        </div>
-
-        {/* ACCOUNT DETAILS */}
-        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
-          <div className="mb-5 flex items-center justify-between">
-            <h2 className="text-lg font-semibold">Account Details</h2>
-            {isConnected && (
-              <button
-                type="button"
                 onClick={disconnectWallet}
-                className="text-xs text-red-400 transition hover:text-red-300"
+                className="rounded-lg border border-zinc-700 px-4 py-2 text-sm hover:bg-zinc-800"
               >
                 Disconnect
               </button>
-            )}
-          </div>
-
-          <div className="space-y-4">
-            <div className="border-b border-white/10 pb-4">
-              <p className="text-sm text-gray-400">Account ID / Username</p>
-              <p className="mt-1 font-mono text-sm">
-                {profile?.username || "Not logged in"}
-              </p>
             </div>
 
-            <div className="flex items-center justify-between border-b border-white/10 pb-4">
+            <div className="mb-4">
+              <p className="mb-1 text-sm text-gray-400">Balance</p>
+              <div className="flex items-baseline gap-2">
+                <p className="text-3xl font-bold">{balance.toFixed(4)}</p>
+                <p className="text-lg text-gray-400">NEAR</p>
+              </div>
+            </div>
+
+            <button
+              onClick={handleManualRefresh}
+              disabled={refreshing}
+              className="flex items-center gap-2 rounded-lg border border-zinc-700 px-4 py-2 text-sm hover:bg-zinc-800 disabled:opacity-50"
+            >
+              <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+              Refresh Balance
+            </button>
+          </div>
+
+          <div className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-6">
+            <div className="mb-4 flex items-center justify-between gap-3">
               <div>
-                <p className="text-sm text-gray-400">Wallet Status</p>
-                <p className="mt-1 text-sm">
-                  {walletAddress ? "Connected" : "Not connected"}
-                </p>
+                <h3 className="text-lg font-semibold">Marketplace balances</h3>
+                <p className="text-sm text-gray-400">On-chain proceeds, fees, refunds and storage credit.</p>
               </div>
-
-              {walletAddress ? (
-                <span className="rounded-full border border-green-500/20 bg-green-500/10 px-3 py-1 text-xs font-medium text-green-400">
-                  Connected
-                </span>
-              ) : (
-                <span className="rounded-full bg-gray-500/10 px-3 py-1 text-xs text-gray-500">
-                  Disconnected
-                </span>
-              )}
-            </div>
-
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-400">Network</p>
-                <p className="mt-1 text-sm text-gray-300">{NIMIQ_NETWORK_LABEL}</p>
-              </div>
-
-              {blockNumber !== null && blockNumber !== undefined && (
-                <span className="text-xs text-gray-500">
-                  Height #{Number(blockNumber).toLocaleString()}
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* TRANSACTIONS */}
-        <div>
-          <h2 className="mb-4 text-xl font-semibold">Recent Transactions</h2>
-          <div className="rounded-2xl border border-white/10 bg-white/[0.03]">
-            <div className="p-5 text-sm text-gray-500">
-              No recent transactions.
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* RECEIVE MODAL */}
-      {showReceiveModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#12121e] p-6 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-white/10 pb-4">
-              <h3 className="flex items-center gap-2 text-lg font-semibold">
-                <ArrowDownLeft size={20} className="text-purple-400" />
-                Receive Testnet NIM
-              </h3>
-              <button
-                type="button"
-                onClick={() => setShowReceiveModal(false)}
-                className="rounded-lg p-1 text-gray-400 transition hover:text-white"
-              >
-                <X size={18} />
+              <button onClick={refreshMarketplace} className="rounded-lg border border-zinc-700 px-3 py-2 text-sm hover:bg-zinc-800">
+                Refresh
               </button>
             </div>
-
-            <div className="mt-5 space-y-4">
-              <p className="text-xs text-gray-400">
-                Share this Nimiq testnet address with the sender to receive testnet NIM.
-              </p>
-
-              <div className="rounded-xl border border-white/10 bg-black/30 p-4">
-                <p className="mb-1 text-xs text-gray-500">
-                  Your Testnet Nimiq Address
-                </p>
-                <p className="break-all font-mono text-sm leading-relaxed text-white">
-                  {formattedFullAddress}
-                </p>
-              </div>
-
-              <button
-                type="button"
-                onClick={handleCopy}
-                className="flex w-full items-center justify-center gap-2 rounded-xl bg-purple-600 py-3 text-sm font-semibold transition hover:bg-purple-700"
-              >
-                {copied ? (
-                  <>
-                    <Check size={16} />
-                    Copied!
-                  </>
-                ) : (
-                  <>
-                    <Copy size={16} />
-                    Copy Address
-                  </>
-                )}
-              </button>
-
-              <a
-                href={TESTNET_FAUCET_URL}
-                target="_blank"
-                rel="noreferrer"
-                className="flex w-full items-center justify-center rounded-xl border border-white/10 py-3 text-sm font-semibold text-white/80 transition hover:bg-white/[0.04]"
-              >
-                Get free testnet NIM
-              </a>
-
-              <p className="text-center text-[11px] text-gray-500">
-                Only send Nimiq testnet NIM to this address.
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* SEND MODAL */}
-      {showSendModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#12121e] p-6 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-white/10 pb-4">
-              <h3 className="flex items-center gap-2 text-lg font-semibold">
-                <ArrowUpRight size={20} className="text-purple-400" />
-                Send Testnet NIM
-              </h3>
-              <button
-                type="button"
-                onClick={() => setShowSendModal(false)}
-                className="rounded-lg p-1 text-gray-400 transition hover:text-white"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            {sendTxHash ? (
-              <div className="mt-5 space-y-4 text-center">
-                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-green-500/20 text-green-400">
-                  <Check size={28} />
+            {marketplaceError && <p className="mb-4 text-sm text-amber-300">{marketplaceError}</p>}
+            {marketplace && (
+              <>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  {[
+                    ["Seller proceeds", marketplace.sellerProceeds, "seller"],
+                    ["Marketplace fees", marketplace.feeProceeds, "fee"],
+                    ["Buyer refunds", marketplace.buyerRefund, null],
+                    ["Storage available", marketplace.storage?.available || "0", null],
+                  ].map(([label, amount, kind]) => (
+                    <div key={label} className="rounded-xl border border-zinc-800 bg-black/40 p-4">
+                      <p className="text-xs text-gray-400">{label}</p>
+                      <p className="mt-1 break-all font-mono text-sm">{yoctoToNear(amount || "0")} NEAR</p>
+                      {kind && BigInt(amount || "0") > 0n && (
+                        <button
+                          onClick={() => withdrawMarketplaceBalance(kind, amount)}
+                          disabled={Boolean(withdrawing)}
+                          className="mt-3 rounded-lg border border-[#00EC97]/40 px-3 py-1 text-xs text-[#00EC97] disabled:opacity-50"
+                        >
+                          Withdraw
+                        </button>
+                      )}
+                    </div>
+                  ))}
                 </div>
-                <h4 className="text-lg font-bold">Transaction Sent!</h4>
-                <p className="text-xs text-gray-400">
-                  Your testnet transaction was submitted successfully.
-                </p>
-                <a
-                  href={getTestnetExplorerTxUrl(sendTxHash)}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="block break-all rounded-xl bg-black/30 p-3 font-mono text-xs text-purple-300 underline-offset-2 hover:underline"
-                >
-                  {sendTxHash}
-                </a>
-                <button
-                  type="button"
-                  onClick={() => setShowSendModal(false)}
-                  className="w-full rounded-xl bg-purple-600 py-3 text-sm font-semibold transition hover:bg-purple-700"
-                >
-                  Close
-                </button>
-              </div>
-            ) : (
-              <form onSubmit={handleExecuteSend} className="mt-5 space-y-4">
-                <div>
-                  <label className="mb-1 block text-xs text-gray-400">
-                    Recipient Nimiq Address
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="NQ..."
-                    value={sendRecipient}
-                    onChange={(e) => setSendRecipient(e.target.value)}
-                    className="w-full rounded-xl border border-white/10 bg-black/30 px-3.5 py-2.5 font-mono text-sm text-white outline-none placeholder:text-gray-600 focus:border-purple-500"
-                  />
-                </div>
-
-                <div>
-                  <div className="mb-1 flex items-center justify-between">
-                    <label className="text-xs text-gray-400">Amount (NIM)</label>
-                    <span className="text-xs text-gray-500">
-                      Balance: {formatNim(balance, 2)} NIM
-                    </span>
-                  </div>
-
-                  <div className="relative">
-                    <input
-                      type="number"
-                      step="any"
-                      min="0.00001"
-                      required
-                      placeholder="0.0"
-                      value={sendAmount}
-                      onChange={(e) => setSendAmount(e.target.value)}
-                      className="w-full rounded-xl border border-white/10 bg-black/30 px-3.5 py-2.5 pr-16 text-sm text-white outline-none focus:border-purple-500"
-                    />
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setSendAmount(String(getMaxSendableNim(balance)))
-                      }
-                      className="absolute right-2 top-1/2 -translate-y-1/2 px-2 py-1 text-xs font-semibold text-purple-400 transition hover:text-purple-300"
-                    >
-                      MAX
-                    </button>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="mb-1 block text-xs text-gray-400">
-                    Message / Memo (Optional)
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Note or reference"
-                    value={sendMessage}
-                    onChange={(e) => setSendMessage(e.target.value)}
-                    className="w-full rounded-xl border border-white/10 bg-black/30 px-3.5 py-2.5 text-sm text-white outline-none placeholder:text-gray-600 focus:border-purple-500"
-                  />
-                </div>
-
-                <div className="rounded-xl border border-yellow-500/20 bg-yellow-500/10 p-3 text-xs text-yellow-300">
-                  This transaction uses Nimiq Testnet. You will still need to confirm the transaction in Nimiq Pay.
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={sending}
-                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-purple-600 py-3 text-sm font-semibold transition hover:bg-purple-700 disabled:opacity-50"
-                >
-                  {sending ? (
-                    <>
-                      <Loader2 size={16} className="animate-spin" />
-                      Sending...
-                    </>
+                <div className="mt-5">
+                  <h4 className="mb-2 text-sm font-semibold">Recent on-chain settlements</h4>
+                  {marketplace.transactions.length === 0 ? (
+                    <p className="text-sm text-gray-500">No marketplace transactions found for this account.</p>
                   ) : (
-                    <>
-                      <ArrowUpRight size={16} />
-                      Send Testnet NIM
-                    </>
+                    <div className="space-y-2">
+                      {marketplace.transactions.slice(0, 10).map((item) => (
+                        <div key={item.sale_id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-zinc-800 bg-black/30 p-3 text-sm">
+                          <div>
+                            <p className="font-medium">{item.token_id}</p>
+                            <p className="text-xs text-gray-500">{item.status} · {yoctoToNear(item.price)} NEAR</p>
+                          </div>
+                          {item.status === "refund_available" && item.buyer === walletAddress && (
+                            <button
+                              onClick={() => withdrawMarketplaceBalance("refund", item.price, item.sale_id)}
+                              disabled={Boolean(withdrawing)}
+                              className="rounded-lg border border-amber-400/40 px-3 py-1 text-xs text-amber-300 disabled:opacity-50"
+                            >
+                              Claim refund
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
                   )}
-                </button>
-              </form>
+                </div>
+              </>
             )}
+          </div>
+
+          <div className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-6">
+            <h3 className="mb-2 text-lg font-semibold">NEAR Testnet</h3>
+            <p className="text-sm text-gray-400">{networkHint}</p>
           </div>
         </div>
       )}

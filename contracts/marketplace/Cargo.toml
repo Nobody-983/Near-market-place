@@ -1,0 +1,19 @@
+[package]
+name = "near-marketplace-foundation"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Non-deployable state and accounting foundations; no transaction entry points"
+
+[lib]
+crate-type = ["rlib"]
+
+[features]
+default = []
+testnet = []
+production = []
+
+[dependencies]
+borsh = { version = "=1.8.1", features = ["derive"] }
+near-account-id = { version = "=3.0.0", features = ["borsh"] }
+sha2 = "=0.10.9"

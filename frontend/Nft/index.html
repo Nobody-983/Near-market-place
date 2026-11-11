@@ -2,9 +2,30 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/png" href="/nimiq.png" />
+    <link rel="icon" type="image/svg+xml" href="/near-logo.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Nimiq NFT — Testnet</title>
+    <title>NEAR NFT — Testnet</title>
+    <script>
+      (function () {
+        var stored;
+        try { stored = localStorage.getItem('near-nft-theme'); } catch (_) {}
+        var theme = stored === 'light' || stored === 'dark'
+          ? stored
+          : (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+        document.documentElement.dataset.theme = theme;
+        document.documentElement.style.colorScheme = theme;
+      })();
+      window.global = window;
+      window.process = window.process || {
+        env: {},
+        nextTick: function (fn) {
+          var args = Array.prototype.slice.call(arguments, 1);
+          setTimeout(function () { fn.apply(null, args); }, 0);
+        },
+        browser: true,
+        version: ''
+      };
+    </script>
   </head>
 
   <body>

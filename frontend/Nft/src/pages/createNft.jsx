@@ -1,5 +1,5 @@
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ImagePlus,
   Upload,
@@ -14,19 +14,40 @@ import {
 
 import { useWallet } from "../context/walletContext";
 import { supabase } from "../lib/supabase";
+import { validateNearAmount } from "../lib/near/utils";
+import {
+  LISTING_ACTIONS_ENABLED,
+  LISTING_UNAVAILABLE_MESSAGE,
+  MINTING_ACTIONS_ENABLED,
+  MINTING_UNAVAILABLE_MESSAGE,
+} from "../config/marketplace";
 
 import {
   uploadNFTImage,
   createNFT,
   deleteNFT,
-  deleteNFTImage,
+  getNFTDeletionError,
 } from "../services/nftService";
 
 import {
-  createListing,
-  cancelListing,
   getUserListings,
+  waitForIndexedListing,
 } from "../services/marketService";
+import {
+  assertFinalSuccess,
+  cancelListingOnChain,
+  ensureMarketplaceListingStorage,
+  listingIdFromFinalResult,
+  listNftOnChain,
+  marketplaceListing,
+  marketplaceListingMetadata,
+  mintNftOnChain,
+  nftToken,
+  requireConnectedAccount,
+  transactionHash,
+  verifyListingPreconditions,
+  waitForFinal,
+} from "../lib/near/contract.js";
 
 // =========================================================
 // CONSTANTS
@@ -59,7 +80,8 @@ const CATEGORIES = [
 // =========================================================
 
 function CreateNFT() {
-  const { user } = useWallet();
+  const { user, selector, walletAddress, isConnected } = useWallet();
+  const userId = user?.id;
   const fileInputRef = useRef(null);
 
   const [form, setForm] = useState({
@@ -67,7 +89,7 @@ function CreateNFT() {
     description: "",
     category: "Art",
     price: "",
-    currency: "NIM",
+    currency: "NEAR",
   });
 
   const [image, setImage] = useState(null);
@@ -83,6 +105,7 @@ function CreateNFT() {
   const [loadingNFTs, setLoadingNFTs] = useState(true);
 
   const [deleting, setDeleting] = useState(null);
+  const [minting, setMinting] = useState(null);
   const [listing, setListing] = useState(null);
   const [cancelling, setCancelling] = useState(null);
 
@@ -90,18 +113,73 @@ function CreateNFT() {
 
   const [listingForm, setListingForm] = useState({
     price: "",
-    currency: "NIM",
+    currency: "NEAR",
   });
 
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
+  const mintCatalogNFT = async (nft) => {
+    if (!MINTING_ACTIONS_ENABLED) {
+      setSuccess("");
+      setError(MINTING_UNAVAILABLE_MESSAGE);
+      return;
+    }
+    if (!isConnected || !selector || !walletAddress) {
+      setError("Connect the configured NEAR Testnet mint-authority wallet first.");
+      return;
+    }
+    if (!nft?.id || nft.token_id || nft.nft_contract_id || minting) return;
+
+    const tokenId = `catalog-${nft.id}`;
+    const wallet = { selector, accountId: walletAddress };
+    setMinting(nft.id);
+    setError("");
+    setSuccess("");
+    try {
+      await requireConnectedAccount(walletAddress, wallet);
+      const result = await mintNftOnChain({
+        tokenId,
+        ownerId: walletAddress,
+        wallet,
+        metadata: {
+          title: nft.name,
+          description: nft.description || null,
+          media: nft.image_url,
+          media_hash: null,
+          copies: "1",
+          issued_at: null,
+          expires_at: null,
+          starts_at: null,
+          updated_at: null,
+          extra: JSON.stringify({ catalog_id: nft.id, category: nft.category }),
+          reference: null,
+          reference_hash: null,
+        },
+      });
+      const txHash = transactionHash(result);
+      const finalResult = await waitForFinal(txHash, walletAddress, wallet);
+      assertFinalSuccess(finalResult, "NFT mint");
+      await requireConnectedAccount(walletAddress, wallet);
+      const token = await nftToken(tokenId, wallet);
+      if (!token || token.owner_id !== walletAddress || token.token_id !== tokenId) {
+        throw new Error("The finalized mint could not be verified against NFT contract state.");
+      }
+      setSuccess(`“${nft.name}” was minted on NEAR. The trusted indexer is binding it to your catalog record.`);
+      window.setTimeout(() => { void fetchNFTs(); }, 3000);
+    } catch (err) {
+      setError(err?.message || "Unable to mint this NFT on NEAR Testnet.");
+    } finally {
+      setMinting(null);
+    }
+  };
+
   // =========================================================
   // FETCH OWNED NFTS
   // =========================================================
 
-  const fetchNFTs = async () => {
-    if (!user?.id) {
+  const fetchNFTs = useCallback(async () => {
+    if (!userId) {
       setNfts([]);
       setLoadingNFTs(false);
       return;
@@ -114,6 +192,7 @@ function CreateNFT() {
         .from("nft_ownership")
         .select(`
           nft_id,
+          owner_id,
           acquired_at,
           updated_at,
           nfts (
@@ -123,13 +202,17 @@ function CreateNFT() {
             description,
             image_url,
             category,
-            price,
+            source,
+            token_id,
+            nft_contract_id,
+            price::text,
             currency,
             created_at,
-            updated_at
+            updated_at,
+            listing_history:marketplace_listings (id)
           )
         `)
-        .eq("owner_id", user.id)
+        .eq("owner_id", userId)
         .order("acquired_at", {
           ascending: false,
         });
@@ -142,8 +225,10 @@ function CreateNFT() {
       // Flatten it so the rest of the component can continue
       // using nft.id, nft.name, nft.image_url, etc.
       const ownedNFTs = (data || [])
-        .map((ownership) => ownership.nfts)
-        .filter(Boolean);
+        .filter((ownership) => ownership.nfts)
+        .map(({ nfts: nft, owner_id }) => ({
+          ...nft, owner_id, price: validateNearAmount(nft.price),
+        }));
 
       setNfts(ownedNFTs);
     } catch (err) {
@@ -152,34 +237,33 @@ function CreateNFT() {
     } finally {
       setLoadingNFTs(false);
     }
-  };
+  }, [userId]);
 
   // =========================================================
   // FETCH USER LISTINGS
   // =========================================================
 
-  const fetchListings = async () => {
-    if (!user?.id) {
+  const fetchListings = useCallback(async () => {
+    if (!userId) {
       setListings([]);
       return;
     }
 
     try {
-      const data = await getUserListings(user.id);
+      const data = await getUserListings(userId);
       setListings(data || []);
     } catch (err) {
       console.error("Error fetching listings:", err);
     }
-  };
+  }, [userId]);
 
   // =========================================================
   // INITIAL LOAD
   // =========================================================
 
   useEffect(() => {
-    fetchNFTs();
-    fetchListings();
-  }, [user?.id]);
+    void Promise.resolve().then(() => Promise.all([fetchNFTs(), fetchListings()]));
+  }, [fetchListings, fetchNFTs]);
 
   // =========================================================
   // FIND ACTIVE LISTING
@@ -347,14 +431,11 @@ function CreateNFT() {
       return;
     }
 
-    const numericPrice = Number(form.price);
-
-    if (
-      !form.price ||
-      !Number.isFinite(numericPrice) ||
-      numericPrice <= 0
-    ) {
-      setError("Please enter a valid price.");
+    let price;
+    try {
+      price = validateNearAmount(form.price, { allowZero: false });
+    } catch (err) {
+      setError(err.message);
       return;
     }
 
@@ -383,8 +464,8 @@ function CreateNFT() {
         description: trimmedDescription,
         image_url: uploadedImage.publicUrl,
         category: form.category,
-        price: numericPrice,
-        currency: "NIM",
+        price,
+        currency: "NEAR",
       });
 
       if (!newNFT) {
@@ -392,7 +473,8 @@ function CreateNFT() {
       }
 
       setNfts((currentNFTs) => [
-        newNFT,
+        // The creation trigger establishes ownership; new entries have no listings.
+        { ...newNFT, owner_id: user.id, listing_history: [] },
         ...currentNFTs,
       ]);
 
@@ -401,32 +483,21 @@ function CreateNFT() {
         description: "",
         category: "Art",
         price: "",
-        currency: "NIM",
+        currency: "NEAR",
       });
 
       removeImage();
 
-      setSuccess("NFT created successfully.");
+      setSuccess(
+        "NFT saved to your collection. It will not appear in the Marketplace until it is minted on NEAR and listed for sale."
+      );
     } catch (err) {
       console.error("NFT creation error:", err);
 
-      if (uploadedImage?.filePath) {
-        try {
-          await deleteNFTImage(
-            uploadedImage.filePath
-          );
-        } catch (cleanupError) {
-          console.error(
-            "Failed to clean up uploaded image:",
-            cleanupError
-          );
-        }
-      }
-
-      setError(
-        err?.message ||
-          "Something went wrong while creating your NFT."
-      );
+      // Browser Storage access is append-only. A trusted cleanup process must
+      // recheck references, including inserts whose response was lost in transit.
+      const message = err?.message || "Something went wrong while creating your NFT.";
+      setError(uploadedImage?.filePath ? `${message} The uploaded image is retained.` : message);
     } finally {
       setUploading(false);
       setLoading(false);
@@ -438,6 +509,12 @@ function CreateNFT() {
   // =========================================================
 
   const openListingForm = (nft) => {
+    if (!LISTING_ACTIONS_ENABLED) {
+      setSuccess("");
+      setError(LISTING_UNAVAILABLE_MESSAGE);
+      return;
+    }
+
     setError("");
     setSuccess("");
 
@@ -445,7 +522,7 @@ function CreateNFT() {
 
     setListingForm({
       price: nft.price || "",
-      currency: nft.currency || "NIM",
+      currency: nft.currency || "NEAR",
     });
   };
 
@@ -462,7 +539,7 @@ function CreateNFT() {
 
     setListingForm({
       price: "",
-      currency: "NIM",
+      currency: "NEAR",
     });
   };
 
@@ -472,6 +549,12 @@ function CreateNFT() {
 
   const handleListNFT = async (e) => {
     e.preventDefault();
+
+    if (!LISTING_ACTIONS_ENABLED) {
+      setSuccess("");
+      setError(LISTING_UNAVAILABLE_MESSAGE);
+      return;
+    }
 
     if (!listingNFT || listing) {
       return;
@@ -485,36 +568,60 @@ function CreateNFT() {
       return;
     }
 
-    const numericPrice = Number(listingForm.price);
-
-    if (
-      !listingForm.price ||
-      !Number.isFinite(numericPrice) ||
-      numericPrice <= 0
-    ) {
-      setError("Please enter a valid listing price.");
+    let price;
+    try {
+      price = validateNearAmount(listingForm.price, { allowZero: false });
+    } catch (err) {
+      setError(err.message);
       return;
     }
 
     try {
       setListing(listingNFT.id);
 
-      const newListing = await createListing({
-        nft_id: listingNFT.id,
-        price: numericPrice,
-        currency: "NIM",
+      if (!isConnected || !walletAddress || !selector) {
+        throw new Error("Connect the NEAR wallet that owns this NFT before listing.");
+      }
+      if (!listingNFT.token_id || !listingNFT.nft_contract_id) {
+        throw new Error("This catalog NFT has not been bound to an on-chain NEAR token.");
+      }
+      const wallet = { selector, accountId: walletAddress };
+      await requireConnectedAccount(walletAddress, wallet);
+      await verifyListingPreconditions({
+        nftContractId: listingNFT.nft_contract_id,
+        tokenId: listingNFT.token_id,
+        sellerId: walletAddress,
+        wallet,
       });
-
-      if (!newListing) {
-        throw new Error(
-          "Unable to create marketplace listing."
-        );
+      await ensureMarketplaceListingStorage({ sellerId: walletAddress, wallet });
+      await requireConnectedAccount(walletAddress, wallet);
+      const result = await listNftOnChain({
+        nftContractId: listingNFT.nft_contract_id,
+        tokenId: listingNFT.token_id,
+        priceNear: price,
+        wallet,
+      });
+      const txHash = transactionHash(result);
+      const finalResult = await waitForFinal(txHash, walletAddress, wallet);
+      assertFinalSuccess(finalResult, "Listing approval");
+      await requireConnectedAccount(walletAddress, wallet);
+      const contractListingId = listingIdFromFinalResult(finalResult, {
+        nftContractId: listingNFT.nft_contract_id,
+        tokenId: listingNFT.token_id,
+        sellerId: walletAddress,
+      });
+      const [confirmed, metadata] = await Promise.all([
+        marketplaceListing(contractListingId, wallet),
+        marketplaceListingMetadata(contractListingId, wallet),
+      ]);
+      if (!confirmed?.active || metadata?.status !== "active" ||
+          confirmed.token_id !== listingNFT.token_id ||
+          confirmed.nft_contract_id !== listingNFT.nft_contract_id ||
+          confirmed.seller !== walletAddress) {
+        throw new Error("Marketplace listing state could not be confirmed.");
       }
 
-      setListings((currentListings) => [
-        newListing,
-        ...currentListings,
-      ]);
+      const indexed = await waitForIndexedListing({ transactionHash: txHash, status: "active" });
 
       const nftName = listingNFT.name;
 
@@ -522,12 +629,13 @@ function CreateNFT() {
 
       setListingForm({
         price: "",
-        currency: "NIM",
+        currency: "NEAR",
       });
 
-      setSuccess(
-        `"${nftName}" is now listed for sale.`
-      );
+      setSuccess(indexed
+        ? `"${nftName}" is listed on NEAR and verified in the marketplace catalog.`
+        : `"${nftName}" is listed on NEAR. Catalog verification is still pending; the item will appear after the trusted indexer catches up.`);
+      await fetchListings();
     } catch (err) {
       console.error("NFT listing error:", err);
 
@@ -545,6 +653,12 @@ function CreateNFT() {
   // =========================================================
 
   const handleCancelListing = async (nft) => {
+    if (!LISTING_ACTIONS_ENABLED) {
+      setSuccess("");
+      setError(LISTING_UNAVAILABLE_MESSAGE);
+      return;
+    }
+
     const currentListing = getNFTListing(nft.id);
 
     if (!currentListing || cancelling) {
@@ -585,22 +699,40 @@ function CreateNFT() {
         );
       }
 
-      await cancelListing(currentListing.id);
+      if (!isConnected || !walletAddress || !selector) {
+        throw new Error("Connect the seller NEAR wallet before cancelling.");
+      }
+      if (!currentListing.contract_sale_id) {
+        throw new Error("Listing is missing its verified on-chain listing ID.");
+      }
+      const wallet = { selector, accountId: walletAddress };
+      await requireConnectedAccount(walletAddress, wallet);
+      const before = await marketplaceListing(currentListing.contract_sale_id, wallet);
+      if (!before?.active || before.seller !== walletAddress) {
+        throw new Error("The on-chain listing is no longer active for this seller.");
+      }
+      const result = await cancelListingOnChain(currentListing.contract_sale_id, wallet);
+      const txHash = transactionHash(result);
+      const finalResult = await waitForFinal(txHash, walletAddress, wallet);
+      assertFinalSuccess(finalResult, "Listing cancellation");
+      await requireConnectedAccount(walletAddress, wallet);
+      const [after, metadata] = await Promise.all([
+        marketplaceListing(currentListing.contract_sale_id, wallet),
+        marketplaceListingMetadata(currentListing.contract_sale_id, wallet),
+      ]);
+      if (after?.active || after?.seller !== walletAddress || metadata?.status !== "cancelled") {
+        throw new Error("Final NEAR state did not confirm the listing cancellation.");
+      }
 
-      setListings((currentListings) =>
-        currentListings.map((item) =>
-          item.id === currentListing.id
-            ? {
-                ...item,
-                status: "cancelled",
-              }
-            : item
-        )
-      );
+      const indexed = await waitForIndexedListing({
+        contractListingId: currentListing.contract_sale_id,
+        status: "cancelled",
+      });
 
-      setSuccess(
-        `"${nft.name}" has been removed from the marketplace.`
-      );
+      setSuccess(indexed
+        ? `"${nft.name}" was cancelled on NEAR and removed from the verified catalog.`
+        : `"${nft.name}" was cancelled on NEAR. Trusted indexer verification is still pending.`);
+      await fetchListings();
     } catch (err) {
       console.error(
         "Cancel listing error:",
@@ -621,12 +753,10 @@ function CreateNFT() {
   // =========================================================
 
   const handleDelete = async (nft) => {
-    const currentListing = getNFTListing(nft.id);
-
-    if (currentListing) {
-      setError(
-        "Cancel the marketplace listing before deleting this NFT."
-      );
+    setSuccess("");
+    const deletionError = getNFTDeletionError(nft, user?.id);
+    if (deletionError) {
+      setError(deletionError);
       return;
     }
 
@@ -655,7 +785,7 @@ function CreateNFT() {
         )
       );
 
-      setSuccess("NFT deleted successfully.");
+      setSuccess("NFT entry deleted. Its uploaded image is retained.");
     } catch (err) {
       console.error("NFT delete error:", err);
 
@@ -693,7 +823,7 @@ function CreateNFT() {
   // =========================================================
 
   return (
-    <div className="min-h-screen bg-[#0b0b12] px-4 py-6 text-white sm:px-6">
+    <div className="min-h-screen bg-black px-4 py-6 text-white sm:px-6">
 
       {/* HEADER */}
 
@@ -706,6 +836,26 @@ function CreateNFT() {
           Create, manage and showcase your digital assets.
         </p>
       </div>
+
+      {!MINTING_ACTIONS_ENABLED && (
+        <p
+          id="minting-unavailable"
+          role="status"
+          className="mb-4 rounded-xl border border-amber-500/20 bg-amber-500/10 p-4 text-sm text-amber-200"
+        >
+          {MINTING_UNAVAILABLE_MESSAGE}
+        </p>
+      )}
+
+      {!LISTING_ACTIONS_ENABLED && (
+        <p
+          id="listing-unavailable"
+          role="status"
+          className="mb-6 rounded-xl border border-amber-500/20 bg-amber-500/10 p-4 text-sm text-amber-200"
+        >
+          {LISTING_UNAVAILABLE_MESSAGE}
+        </p>
+      )}
 
       {/* ERROR */}
 
@@ -748,7 +898,8 @@ function CreateNFT() {
           </h2>
 
           <p className="mt-1 text-sm text-gray-500">
-            Upload your digital asset and add it to your collection.
+            Upload your digital asset and save it to your collection. Marketplace
+            visibility requires a separate on-chain listing after minting.
           </p>
         </div>
 
@@ -881,12 +1032,11 @@ function CreateNFT() {
                 </label>
 
                 <input
-                  type="number"
+                  type="text"
+                  inputMode="decimal"
                   name="price"
                   value={form.price}
                   onChange={handleChange}
-                  min="0"
-                  step="0.00000001"
                   placeholder="0.00"
                   className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white outline-none transition placeholder:text-gray-600 focus:border-purple-500"
                 />
@@ -905,8 +1055,8 @@ function CreateNFT() {
                   onChange={handleChange}
                   className="w-full rounded-xl border border-white/10 bg-[#11111a] px-4 py-3 text-sm text-white outline-none transition focus:border-purple-500"
                 >
-                  <option value="NIM">
-                    Testnet NIM
+                  <option value="NEAR">
+                    Testnet NEAR
                   </option>
                 </select>
               </div>
@@ -976,6 +1126,7 @@ function CreateNFT() {
             {nfts.map((nft) => {
               const currentListing =
                 getNFTListing(nft.id);
+              const deletionError = getNFTDeletionError(nft, user?.id);
 
               return (
                 <div
@@ -1008,9 +1159,11 @@ function CreateNFT() {
                     <button
                       type="button"
                       onClick={() => handleDelete(nft)}
+                      aria-label="Delete NFT"
+                      title={deletionError || "Delete NFT"}
                       disabled={
-                        deleting === nft.id ||
-                        !!currentListing
+                        !!deleting ||
+                        !!deletionError
                       }
                       className="absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white backdrop-blur-md transition hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
                     >
@@ -1050,24 +1203,40 @@ function CreateNFT() {
 
                       <p className="mt-1 text-base font-semibold">
                         {currentListing
-                          ? `${currentListing.price} ${currentListing.currency}`
-                          : `${nft.price} ${nft.currency}`}
+                          ? `${currentListing.price} ${currentListing.currency || "NEAR"}`
+                          : `${nft.price} ${nft.currency || "NEAR"}`}
                       </p>
                     </div>
 
                     {/* ACTIONS */}
 
                     <div className="flex gap-2">
-                      {currentListing ? (
+                      {!nft.token_id ? (
+                        <button
+                          type="button"
+                          onClick={() => mintCatalogNFT(nft)}
+                          disabled={!MINTING_ACTIONS_ENABLED || minting === nft.id}
+                          aria-describedby={!MINTING_ACTIONS_ENABLED ? "minting-unavailable" : undefined}
+                          title={!MINTING_ACTIONS_ENABLED ? MINTING_UNAVAILABLE_MESSAGE : undefined}
+                          className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-[#00EC97] px-3 py-2 text-sm font-medium text-black transition hover:bg-[#00C781] disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {minting === nft.id ? (
+                            <><Loader2 size={15} className="animate-spin" /> Minting...</>
+                          ) : (
+                            <><Upload size={15} /> Mint on NEAR</>
+                          )}
+                        </button>
+                      ) : currentListing ? (
                         <button
                           type="button"
                           onClick={() =>
                             handleCancelListing(nft)
                           }
                           disabled={
-                            cancelling === nft.id
+                            !LISTING_ACTIONS_ENABLED || cancelling === nft.id
                           }
-                          className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-red-500/40 px-3 py-2 text-sm font-medium text-red-400 transition hover:bg-red-500 hover:text-white disabled:opacity-50"
+                          aria-describedby={!LISTING_ACTIONS_ENABLED ? "listing-unavailable" : undefined}
+                          className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-red-500/40 px-3 py-2 text-sm font-medium text-red-400 transition hover:bg-red-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           {cancelling === nft.id ? (
                             <>
@@ -1090,10 +1259,13 @@ function CreateNFT() {
                           onClick={() =>
                             openListingForm(nft)
                           }
-                          className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-purple-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-purple-700"
+                          disabled={!LISTING_ACTIONS_ENABLED}
+                          aria-describedby={!LISTING_ACTIONS_ENABLED ? "listing-unavailable" : undefined}
+                          title={!LISTING_ACTIONS_ENABLED ? LISTING_UNAVAILABLE_MESSAGE : undefined}
+                          className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-purple-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           <Tag size={15} />
-                          List for Sale
+                          List NFT
                         </button>
                       )}
 
@@ -1132,7 +1304,7 @@ function CreateNFT() {
 
       {/* LISTING MODAL */}
 
-      {listingNFT && (
+      {LISTING_ACTIONS_ENABLED && listingNFT && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm">
           <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#11111a] p-6 shadow-2xl">
 
@@ -1169,7 +1341,8 @@ function CreateNFT() {
                 </label>
 
                 <input
-                  type="number"
+                  type="text"
+                  inputMode="decimal"
                   value={listingForm.price}
                   onChange={(e) =>
                     setListingForm((current) => ({
@@ -1180,8 +1353,6 @@ function CreateNFT() {
                   disabled={
                     listing === listingNFT.id
                   }
-                  min="0"
-                  step="0.00000001"
                   placeholder="Enter price"
                   className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white outline-none transition placeholder:text-gray-600 focus:border-purple-500 disabled:opacity-60"
                 />
@@ -1203,12 +1374,18 @@ function CreateNFT() {
                   disabled={
                     listing === listingNFT.id
                   }
-                  className="w-full rounded-xl border border-white/10 bg-[#0b0b12] px-4 py-3 text-sm text-white outline-none transition focus:border-purple-500 disabled:opacity-60"
+                  className="w-full rounded-xl border border-white/10 bg-black px-4 py-3 text-sm text-white outline-none transition focus:border-purple-500 disabled:opacity-60"
                 >
-                  <option value="NIM">
-                    Testnet NIM
+                  <option value="NEAR">
+                    Testnet NEAR
                   </option>
                 </select>
+              </div>
+
+              <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3 text-xs text-gray-400 space-y-1">
+                <p className="font-medium text-gray-300">Transaction & Deposit Requirements:</p>
+                <p>• Approval deposit: ~0.01 NEAR attached for NFT contract approval.</p>
+                <p>• Storage deposit: up to 0.12 NEAR for contract storage if not already registered.</p>
               </div>
 
               <div className="flex gap-3 pt-2">
@@ -1226,7 +1403,7 @@ function CreateNFT() {
                 <button
                   type="submit"
                   disabled={
-                    listing === listingNFT.id
+                    !LISTING_ACTIONS_ENABLED || listing === listingNFT.id
                   }
                   className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-purple-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-60"
                 >

@@ -1,0 +1,18 @@
+   Compiling nft-local-signer v0.1.0 (/home/acknowlege/Desktop/nft-platform/contracts/testnet/node-validation)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.91s
+   Compiling nft-local-signer v0.1.0 (/home/acknowlege/Desktop/nft-platform/contracts/testnet/node-validation)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.48s
+     Running unittests src/main.rs (target/x86_64-unknown-linux-gnu/debug/deps/nft_local_signer-0a0f55d77cd22e55)
+
+running 1 test
+test tests::prohibited_accounts_actions_and_intake ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+    Checking nft-local-signer v0.1.0 (/home/acknowlege/Desktop/nft-platform/contracts/testnet/node-validation)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.37s
+...............................
+----------------------------------------------------------------------
+Ran 31 tests in 0.099s
+
+OK

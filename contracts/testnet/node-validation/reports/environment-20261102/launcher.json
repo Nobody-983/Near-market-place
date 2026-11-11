@@ -1,0 +1,20 @@
+{
+  "cargo_lock_sha256": "13ad8021e8fe4dfa483358fb6daa8b8ae20cf9a0384289aae64c2771d106968c",
+  "isolation": "bubblewrap unshare-all; no home/repo mounts; network loopback only",
+  "node_sha256": "f0104897d7bc9c9a9f1d869679d2c0b4dca878a53327a4f1bc6901cfdf55699b",
+  "public_inputs_sha256": {
+    "local-node-validation.plan.json": "43c758e249db58c6e805daa5b0326f60ee05235cac950d1e274e211e35c2e0d7",
+    "manifest.template.json": "f5ebc7d2c95c2711ca6a675e92252143fc5cec830770710d8c3c28837a5a96e5",
+    "rpc-snapshot.json": "4970b83e618ad16311748415c1adfb420feb49abb4d18bd7ef71dbb7802fb1c1"
+  },
+  "signer_sha256": "504c2fcaaf469563ceb7f11da549d38b24114f4eced4728c0b9f35327abf993d",
+  "tooling_sha256": {
+    "cases.py": "77dc3cdc4abed7d88a84e16b3afdb19b9596703fc8746d14aea6580b5adbb054",
+    "common.py": "78442212894dc0195240bd08235f4462b7570282f0a429127cf1f0bb80d92890",
+    "fault_proxy.py": "21dd9db73ca55d67c061c0a804df8b6f6275962c14abf03ffcb4f01977cce1ba",
+    "run.py": "65b5270cb1cebcf995bb759efd5fd1b442b9069c30bbae31787d02b2638b96a6",
+    "sandbox.py": "573ca19ca00fb9f95cfe0e3aef52e17398e19c3b5dabeb2d99b0fa8afa5197f7",
+    "test_tooling.py": "19dd5ecb9e951d81dd4e304b0aaac0e2aa0b9ab216f075ea55a8dbec94f13b81",
+    "verify.py": "cc7dffd56feb47ae30ce5c8c4cf4929ba21fd353c14bea40d9b9a419f13403de"
+  }
+}

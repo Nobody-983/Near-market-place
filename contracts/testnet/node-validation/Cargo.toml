@@ -1,0 +1,15 @@
+[package]
+name = "nft-local-signer"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+# Only serialization/signing. No RPC, CLI credentials, auto-installer or wallet.
+[dependencies]
+near-crypto = { version = "=0.38.0", features = ["rand"] }
+near-primitives = "=0.38.0"
+borsh = "=1.6.0"
+serde_json = "=1.0.154"
+base64 = "=0.22.1"
+
+[workspace]

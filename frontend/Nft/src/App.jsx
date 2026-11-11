@@ -1,7 +1,7 @@
-
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 
 import { WalletProvider } from "./context/walletContext";
+import { ThemeProvider } from "./context/themeContext";
 
 import ProtectedRoute from "./components/protectedRoute";
 
@@ -32,10 +32,10 @@ function AppContent() {
         <Route
           path="/dashboard"
           element={
-          <ProtectedRoute>
-            <Dashboard />
+            <ProtectedRoute>
+              <Dashboard />
             </ProtectedRoute>
-            }
+          }
         />
 
         <Route
@@ -45,12 +45,7 @@ function AppContent() {
 
         <Route
           path="/wallet"
-          element={
-          // <ProtectedRoute>
-            <Wallet />
-          // </ProtectedRoute>
-
-          }
+          element={<Wallet />}
         />
 
         <Route
@@ -66,10 +61,9 @@ function AppContent() {
         <Route
           path="/game"
           element={
-          <ProtectedRoute>
-            <Game />
-           </ProtectedRoute>
-
+            <ProtectedRoute>
+              <Game />
+            </ProtectedRoute>
           }
         />
 
@@ -85,9 +79,13 @@ function AppContent() {
 function App() {
   return (
     <BrowserRouter>
-      <WalletProvider>
-        <AppContent />
-      </WalletProvider>
+      <ThemeProvider>
+        <WalletProvider>
+          <div className="route-stage">
+            <AppContent />
+          </div>
+        </WalletProvider>
+      </ThemeProvider>
     </BrowserRouter>
   );
 }
