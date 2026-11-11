@@ -5,8 +5,10 @@ node_modules/
 dist/
 target/
 **/target/
+soroban-cost-estimator/
 .DS_Store
 branch_structure.json
 temp_auto_push.bat
 temp_interactive_push.bat
+
 
