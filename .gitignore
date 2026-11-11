@@ -6,6 +6,7 @@ dist/
 target/
 **/target/
 soroban-cost-estimator/
+supabase/.temp/
 .DS_Store
 branch_structure.json
 temp_auto_push.bat
