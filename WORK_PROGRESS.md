@@ -34,3 +34,11 @@
 * `2026-11-11 18:18`: Created `scripts/testnet-purchase.sh` for exact 12-step multi-wallet purchasing verification.
 * `2026-11-11 18:35`: Inspected and verified parameters for user authorization of Testnet purchase.
 * `2026-11-11 18:41`: Executed on-chain purchase verification (`CONFIRM_TESTNET_PURCHASE=yes ./scripts/testnet-purchase.sh --execute`). Listing created (TX: `3ivrcy1MTpUgpKkmt9E8xzRqh4detzW3gpBBEjtjKPq4`), NFT purchased (TX: `2mJuAN9Rioqa32mkkMnaScLZUpgdPVMadeSkcyPeVyS3`), replay attempt rejected, ownership transferred to `buyer.roundfrog-dev.testnet`, proceeds credited (0.099 NEAR seller, 0.001 NEAR operator). Activated `VITE_TESTNET_PURCHASE_FLOW_VERIFIED=true`.
+* `2026-11-12 23:30`: Investigated mint authority mismatch (`seller.roundfrog-dev.testnet` vs other connected accounts). Verified contract storage `AUTHORITY_KEY` is immutable. Normalized account ID comparisons and updated UI error messages to clearly state authorized authority.
+* `2026-11-12 23:35`: Verified live Testnet mint with authority `seller.roundfrog-dev.testnet`: minted `catalog-roundfrog-1794525931` (TX: `H9eqUGTPbVr4aqR3x9HzsVoqtxUmAWfZTiuPzSSqdsyN`). Verified non-authority mint rejection with `buyer.roundfrog-dev.testnet`.
+* `2026-11-12 23:45`: Verified decoupled listing and cancellation with non-mint-authority owner `buyer.roundfrog-dev.testnet`:
+  - Storage deposit: TX `4taSy1ikVXX1St4sRryZDA4QuLnzxti9dt4ji52q1r5n`.
+  - Listing approval: TX `4Ze6KagoDff37XnBEMD5uj4SrEi99kFdpQECLVQeET1k`.
+  - Cancellation: TX `64YpD5oiwiV9fuMTuWKcPEf2EJGbytyhbbZH4KNyzkjC`.
+* `2026-11-13 00:35`: Updated `createNft.jsx` and `nftDetails.jsx` to query on-chain owned tokens (`nftTokensForOwner`) and active marketplace listings (`marketplaceListings`), enabling full listing and cancellation workflows for any connected NEAR wallet owning an on-chain token without external database dependencies.
+* `2026-11-13 00:43`: Re-ran complete test suites: 123/123 JS tests pass, 51/51 Rust NFT tests pass, 33/33 Rust Marketplace tests pass, ESLint 0 errors, Vite production build clean.

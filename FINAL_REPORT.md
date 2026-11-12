@@ -95,6 +95,28 @@ We authored `scripts/testnet-purchase.sh`, which runs a complete `--dry-run` ins
 CONFIRM_TESTNET_PURCHASE=yes ./scripts/testnet-purchase.sh --execute
 ```
 
+### C. Testnet Mint Authority & Decoupled Listing Resolution
+
+1. **Mint Authority Analysis:**
+   - In `contracts/nft/src/testnet_mint.rs`, `new_testnet(mint_authority_id, ...)` writes the mint authority once to storage under `AUTHORITY_KEY` (`b"nft:testnet:mint-authority:v1"`).
+   - Deployed contract `nft.roundfrog-dev.testnet` returned `"seller.roundfrog-dev.testnet"` from `testnet_mint_authority`.
+   - The contract has no mutation method for `AUTHORITY_KEY`; it is **100% immutable**.
+   - `authorize_testnet_mint(&self, recipient: &AccountId)` checks `env::predecessor_account_id() == authority` and `recipient == &authority`.
+   - On-chain testnet minting was executed and verified using the authorized account:
+     - Account: `seller.roundfrog-dev.testnet`
+     - Token: `catalog-roundfrog-1794525931`
+     - Method: `nft_mint` with 0.05 NEAR attached deposit
+     - Transaction Hash: [`H9eqUGTPbVr4aqR3x9HzsVoqtxUmAWfZTiuPzSSqdsyN`](https://explorer.testnet.near.org/transactions/H9eqUGTPbVr4aqR3x9HzsVoqtxUmAWfZTiuPzSSqdsyN)
+   - Unauthorized mint attempt by `buyer.roundfrog-dev.testnet` correctly panicked on-chain: `ExecutionError("Smart contract panicked: Only configured testnet mint authority may mint")`.
+
+2. **Decoupled Listing Rights & Direct Discovery:**
+   - Listing an owned NFT does **not** require the mint authority. Any account that owns an on-chain token (`token.owner_id == sellerId`) can call `nft_approve` to list on `market.roundfrog-dev.testnet`.
+   - Verified on Testnet with non-mint-authority owner `buyer.roundfrog-dev.testnet`:
+     - Storage deposit (0.12 NEAR): [`4taSy1ikVXX1St4sRryZDA4QuLnzxti9dt4ji52q1r5n`](https://explorer.testnet.near.org/transactions/4taSy1ikVXX1St4sRryZDA4QuLnzxti9dt4ji52q1r5n)
+     - Listing approval (0.01 NEAR): [`4Ze6KagoDff37XnBEMD5uj4SrEi99kFdpQECLVQeET1k`](https://explorer.testnet.near.org/transactions/4Ze6KagoDff37XnBEMD5uj4SrEi99kFdpQECLVQeET1k)
+     - Authorized cancellation (1 yoctoNEAR): [`64YpD5oiwiV9fuMTuWKcPEf2EJGbytyhbbZH4KNyzkjC`](https://explorer.testnet.near.org/transactions/64YpD5oiwiV9fuMTuWKcPEf2EJGbytyhbbZH4KNyzkjC)
+   - Frontend components (`createNft.jsx`, `nftDetails.jsx`) were upgraded to discover on-chain tokens via `nftTokensForOwner` and active listings via `marketplaceListings`, decoupling user-owned inventory display from external database indexing lag and rendering visible "List NFT" buttons for all verified token owners.
+
 ---
 
 ## 4. Test Suite Execution Summary
