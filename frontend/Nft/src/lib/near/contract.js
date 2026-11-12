@@ -216,6 +216,22 @@ export function nftToken(tokenId, wallet, nftContractId = NFT_CONTRACT_ID) {
   return view(nftContractId, 'nft_token', { token_id: tokenId }, wallet);
 }
 
+export function nftTokensForOwner(accountId, wallet, { fromIndex = '0', limit = 50, nftContractId = NFT_CONTRACT_ID } = {}) {
+  return view(nftContractId, 'nft_tokens_for_owner', { account_id: accountId, from_index: String(fromIndex), limit: Number(limit) }, wallet);
+}
+
+export function getMintAuthority(wallet, nftContractId = NFT_CONTRACT_ID) {
+  return view(nftContractId, 'testnet_mint_authority', {}, wallet);
+}
+
+export async function marketplaceListings(wallet, { fromIndex = '0', limit = 50 } = {}) {
+  const list = await view(MARKETPLACE_CONTRACT_ID, 'listings', { from_index: String(fromIndex), limit: Number(limit) }, wallet);
+  return (list || []).map((item) => ({
+    ...item,
+    listing_id: item.listing_id || `${item.nft_contract_id}|${item.token_id}|${item.seller}|${item.approval_id}`,
+  }));
+}
+
 export function nftMarketplaceId(wallet, nftContractId = NFT_CONTRACT_ID) {
   return view(nftContractId, 'marketplace_id', {}, wallet);
 }
@@ -311,8 +327,10 @@ export async function verifyMintPreconditions({ signerId, wallet }) {
   if (boundMarketplace !== MARKETPLACE_CONTRACT_ID) {
     throw new Error('NFT contract is not bound to the reviewed marketplace');
   }
-  if (mintAuthority !== signerId) {
-    throw new Error('Connected wallet is not the configured Testnet mint authority');
+  const normalizedSigner = String(signerId).trim().toLowerCase();
+  const normalizedAuthority = String(mintAuthority).trim().toLowerCase();
+  if (normalizedAuthority !== normalizedSigner) {
+    throw new Error(`Connected wallet (${signerId}) is not the configured Testnet mint authority (${mintAuthority}). Only ${mintAuthority} can mint new NFTs on this contract.`);
   }
   return { marketplaceId: boundMarketplace, mintAuthority };
 }

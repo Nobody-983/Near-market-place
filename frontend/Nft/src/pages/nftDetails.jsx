@@ -16,6 +16,7 @@ import { supabase } from "../lib/supabase";
 import { useWallet } from "../context/walletContext";
 import {
   MARKETPLACE_CONTRACT_ID,
+  NFT_CONTRACT_ID,
   NETWORK_ID,
 } from "../config/near";
 import {
@@ -31,10 +32,12 @@ import {
   assertFinalSuccess,
   cancelListingOnChain,
   ensureMarketplaceListingStorage,
+  getMintAuthority,
   listingIdFromFinalResult,
   listNftOnChain,
   marketplaceListing,
   marketplaceListingMetadata,
+  marketplaceListings,
   mintNftOnChain,
   nftToken,
   requireConnectedAccount,
@@ -43,7 +46,7 @@ import {
   waitForFinal,
   waitForSettlement,
 } from "../lib/near/contract.js";
-import { nearToYocto, validateNearAmount } from "../lib/near/utils";
+import { nearToYocto, validateNearAmount, yoctoToNear } from "../lib/near/utils";
 import { LISTING_SELECT_FIELDS, waitForIndexedListing } from "../services/marketService";
 import { NFT_SELECT_FIELDS } from "../services/nftService";
 import { PREVIEW_NFTS, PREVIEW_LISTINGS } from "../lib/previewData";
@@ -68,8 +71,23 @@ function NFTDetails() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [likes, setLikes] = useState(0);
+  const [mintAuthority, setMintAuthority] = useState(null);
   const { likedNFTs, loadingLikes, likingNFT, likeError, toggleLike } = useNFTLikes(id);
   const liked = likedNFTs.has(id);
+
+  useEffect(() => {
+    let mounted = true;
+    getMintAuthority()
+      .then((auth) => {
+        if (mounted && auth) setMintAuthority(auth);
+      })
+      .catch((e) => {
+        void e;
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const fetchNFTDetails = useCallback(async () => {
     try {
@@ -89,95 +107,205 @@ function NFTDetails() {
         return;
       }
 
-      const { data: nftData, error: nftError } = await supabase
-        .from("nfts")
-        .select(`
-          ${NFT_SELECT_FIELDS},
-          profiles:creator_id (
-            id,
-            username,
-            display_name,
-            avatar_url,
-            wallet_address
-          )
-        `)
-        .eq("id", id)
-        .single();
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id || "");
+      let nftData = null;
 
-      if (nftError) {
-        // Never substitute demo data for an unknown or deleted NFT ID.
-        throw nftError;
+      if (isUuid) {
+        const { data, error: nftError } = await supabase
+          .from("nfts")
+          .select(`
+            ${NFT_SELECT_FIELDS},
+            profiles:creator_id (
+              id,
+              username,
+              display_name,
+              avatar_url,
+              wallet_address
+            )
+          `)
+          .eq("id", id)
+          .maybeSingle();
+
+        if (nftError) {
+          throw nftError;
+        }
+        nftData = data;
+      } else {
+        const { data, error: nftError } = await supabase
+          .from("nfts")
+          .select(`
+            ${NFT_SELECT_FIELDS},
+            profiles:creator_id (
+              id,
+              username,
+              display_name,
+              avatar_url,
+              wallet_address
+            )
+          `)
+          .eq("token_id", id)
+          .maybeSingle();
+
+        if (nftError) {
+          throw nftError;
+        }
+        nftData = data;
       }
-      setNft({ ...nftData, price: validateNearAmount(nftData.price) });
 
-      const { data: ownershipData } = await supabase
-        .from("nft_ownership")
-        .select(`
-          owner_id,
-          acquired_at,
-          profiles:owner_id (
-            id,
-            username,
-            display_name,
-            avatar_url,
-            wallet_address
-          )
-        `)
-        .eq("nft_id", id)
-        .maybeSingle();
+      const tokenId = nftData?.token_id || (!isUuid ? id : null);
+      let onChainToken = null;
+      if (tokenId) {
+        try {
+          const wallet = selector ? { selector, accountId: walletAddress } : undefined;
+          onChainToken = await nftToken(tokenId, wallet);
+        } catch (chainErr) {
+          console.warn("Could not query on-chain token:", chainErr);
+        }
+      }
 
+      if (!nftData && !onChainToken) {
+        throw new Error("NFT not found");
+      }
+
+      if (nftData) {
+        setNft({
+          ...nftData,
+          price: validateNearAmount(nftData.price),
+          on_chain_owner: onChainToken?.owner_id || null,
+        });
+      } else if (onChainToken) {
+        let extra = {};
+        try {
+          extra = onChainToken.metadata?.extra ? JSON.parse(onChainToken.metadata.extra) : {};
+        } catch (e) {
+          void e;
+        }
+        setNft({
+          id: onChainToken.token_id,
+          token_id: onChainToken.token_id,
+          nft_contract_id: NFT_CONTRACT_ID,
+          name: onChainToken.metadata?.title || onChainToken.token_id,
+          description: onChainToken.metadata?.description || "",
+          image_url: onChainToken.metadata?.media || "/placeholder.png",
+          category: extra.category || "Art",
+          price: "0",
+          currency: "NEAR",
+          on_chain_owner: onChainToken.owner_id,
+        });
+      }
+
+      let ownershipData = null;
+      if (isUuid) {
+        const { data } = await supabase
+          .from("nft_ownership")
+          .select(`
+            owner_id,
+            acquired_at,
+            profiles:owner_id (
+              id,
+              username,
+              display_name,
+              avatar_url,
+              wallet_address
+            )
+          `)
+          .eq("nft_id", id)
+          .maybeSingle();
+
+        ownershipData = data;
+      }
       setOwnership(ownershipData || null);
 
-      const { data: listingData } = await supabase
-        .from("marketplace_listings")
-        .select(`
-          ${LISTING_SELECT_FIELDS},
-          profiles:seller_id (
-            id,
-            username,
-            display_name,
-            avatar_url,
-            wallet_address
-          )
-        `)
-        .eq("nft_id", id)
-        .eq("status", "active")
-        .maybeSingle();
+      let listingData = null;
+      if (isUuid) {
+        const { data } = await supabase
+          .from("marketplace_listings")
+          .select(`
+            ${LISTING_SELECT_FIELDS},
+            profiles:seller_id (
+              id,
+              username,
+              display_name,
+              avatar_url,
+              wallet_address
+            )
+          `)
+          .eq("nft_id", id)
+          .eq("status", "active")
+          .maybeSingle();
+
+        listingData = data;
+      }
+
+      if (!listingData && tokenId) {
+        try {
+          const wallet = selector ? { selector, accountId: walletAddress } : undefined;
+          const chainListings = await marketplaceListings(wallet);
+          const activeChainListing = (chainListings || []).find(
+            (l) => l.active && l.token_id === tokenId
+          );
+          if (activeChainListing) {
+            listingData = {
+              id: activeChainListing.listing_id,
+              contract_sale_id: activeChainListing.listing_id,
+              contract_listing_id: activeChainListing.listing_id,
+              token_id: activeChainListing.token_id,
+              nft_id: nftData?.id || activeChainListing.token_id,
+              seller_id: activeChainListing.seller,
+              seller: activeChainListing.seller,
+              price: yoctoToNear(activeChainListing.price),
+              currency: "NEAR",
+              status: "active",
+              network_id: NETWORK_ID,
+              marketplace_contract_id: MARKETPLACE_CONTRACT_ID,
+            };
+          }
+        } catch (chainListingErr) {
+          console.warn("Could not query on-chain listing:", chainListingErr);
+        }
+      }
 
       setListing(listingData ? {
         ...listingData, price: validateNearAmount(listingData.price, { allowZero: false }),
       } : null);
 
       // Likes
-      const { count: likeCount, error: likesError } = await supabase
-        .from("nft_likes")
-        .select("*", { count: "exact", head: true })
-        .eq("nft_id", id);
-      if (likesError) throw likesError;
-      setLikes(likeCount || 0);
+      if (isUuid) {
+        const { count: likeCount, error: likesError } = await supabase
+          .from("nft_likes")
+          .select("*", { count: "exact", head: true })
+          .eq("nft_id", id);
+        if (likesError) throw likesError;
+        setLikes(likeCount || 0);
+      }
     } catch (err) {
       console.error(err);
       setError("Failed to load NFT details");
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, selector, walletAddress]);
 
   useEffect(() => {
     void Promise.resolve().then(fetchNFTDetails);
   }, [fetchNFTDetails]);
 
+  const onChainOwner = nft?.on_chain_owner;
   const ownerWalletAddress =
+    onChainOwner ||
     ownership?.profiles?.wallet_address ||
     listing?.profiles?.wallet_address ||
+    listing?.seller ||
     (nft?.token_id ? null : nft?.profiles?.wallet_address) ||
     null;
 
   const isOwner = Boolean(
     walletAddress && (
+      (onChainOwner && onChainOwner.toLowerCase() === walletAddress.toLowerCase()) ||
       (ownerWalletAddress && ownerWalletAddress.toLowerCase() === walletAddress.toLowerCase()) ||
       (ownership?.owner_id && user?.id && ownership.owner_id === user.id) ||
       (listing?.seller_id && user?.id && listing.seller_id === user.id) ||
+      (listing?.seller && listing.seller.toLowerCase() === walletAddress.toLowerCase()) ||
       (nft?.creator_id && user?.id && nft.creator_id === user.id && !ownership?.owner_id)
     )
   );
@@ -309,22 +437,24 @@ function NFTDetails() {
       if (!isConnected || !walletAddress || !selector) {
         throw new Error("Connect the NEAR wallet that owns this NFT before listing.");
       }
-      if (!nft?.token_id || !nft?.nft_contract_id) {
+      const nftContractId = nft?.nft_contract_id || NFT_CONTRACT_ID;
+      const tokenId = nft?.token_id || nft?.id;
+      if (!tokenId) {
         throw new Error("This catalog NFT has not been bound to an on-chain NEAR token.");
       }
       const wallet = { selector, accountId: walletAddress };
       await requireConnectedAccount(walletAddress, wallet);
       await verifyListingPreconditions({
-        nftContractId: nft.nft_contract_id,
-        tokenId: nft.token_id,
+        nftContractId,
+        tokenId,
         sellerId: walletAddress,
         wallet,
       });
       await ensureMarketplaceListingStorage({ sellerId: walletAddress, wallet });
       await requireConnectedAccount(walletAddress, wallet);
       const result = await listNftOnChain({
-        nftContractId: nft.nft_contract_id,
-        tokenId: nft.token_id,
+        nftContractId,
+        tokenId,
         priceNear: price,
         wallet,
       });
@@ -333,8 +463,8 @@ function NFTDetails() {
       assertFinalSuccess(finalResult, "Listing approval");
       await requireConnectedAccount(walletAddress, wallet);
       const contractListingId = listingIdFromFinalResult(finalResult, {
-        nftContractId: nft.nft_contract_id,
-        tokenId: nft.token_id,
+        nftContractId,
+        tokenId,
         sellerId: walletAddress,
       });
       const [confirmed, metadata] = await Promise.all([
@@ -342,14 +472,29 @@ function NFTDetails() {
         marketplaceListingMetadata(contractListingId, wallet),
       ]);
       if (!confirmed?.active || metadata?.status !== "active" ||
-          confirmed.token_id !== nft.token_id ||
-          confirmed.nft_contract_id !== nft.nft_contract_id ||
-          confirmed.seller !== walletAddress) {
+          confirmed.token_id !== tokenId ||
+          confirmed.nft_contract_id !== nftContractId ||
+          confirmed.seller.toLowerCase() !== walletAddress.toLowerCase()) {
         throw new Error("Marketplace listing state could not be confirmed.");
       }
 
       setShowListingModal(false);
       setListingPrice("");
+
+      setListing({
+        id: contractListingId,
+        contract_sale_id: contractListingId,
+        contract_listing_id: contractListingId,
+        token_id: tokenId,
+        nft_id: nft.id,
+        seller_id: user?.id || walletAddress,
+        seller: walletAddress,
+        price,
+        currency: "NEAR",
+        status: "active",
+        network_id: NETWORK_ID,
+        marketplace_contract_id: MARKETPLACE_CONTRACT_ID,
+      });
 
       const indexed = await waitForIndexedListing({ transactionHash: txHash, status: "active" });
 
@@ -382,42 +527,41 @@ function NFTDetails() {
       setError("");
       setSuccess("");
 
-      const { data: { user: authUser }, error: authError } = await supabase.auth.getUser();
-      if (authError) throw authError;
-      if (!authUser) {
-        throw new Error("Your session has expired. Please log in again.");
-      }
-      if (authUser.id !== listing.seller_id) {
+      const { data: { user: authUser } } = await supabase.auth.getUser().catch(() => ({ data: { user: null } }));
+      if (authUser && listing.seller_id && authUser.id !== listing.seller_id && listing.seller?.toLowerCase() !== walletAddress?.toLowerCase()) {
         throw new Error("You are not the owner of this listing.");
       }
       if (!isConnected || !walletAddress || !selector) {
         throw new Error("Connect the seller NEAR wallet before cancelling.");
       }
-      if (!listing.contract_sale_id) {
+      const saleId = listing.contract_sale_id || listing.contract_listing_id || listing.id;
+      if (!saleId) {
         throw new Error("Listing is missing its verified on-chain listing ID.");
       }
 
       const wallet = { selector, accountId: walletAddress };
       await requireConnectedAccount(walletAddress, wallet);
-      const before = await marketplaceListing(listing.contract_sale_id, wallet);
-      if (!before?.active || before.seller !== walletAddress) {
+      const before = await marketplaceListing(saleId, wallet);
+      if (!before?.active || before.seller.toLowerCase() !== walletAddress.toLowerCase()) {
         throw new Error("The on-chain listing is no longer active for this seller.");
       }
-      const result = await cancelListingOnChain(listing.contract_sale_id, wallet);
+      const result = await cancelListingOnChain(saleId, wallet);
       const txHash = transactionHash(result);
       const finalResult = await waitForFinal(txHash, walletAddress, wallet);
       assertFinalSuccess(finalResult, "Listing cancellation");
       await requireConnectedAccount(walletAddress, wallet);
       const [after, metadata] = await Promise.all([
-        marketplaceListing(listing.contract_sale_id, wallet),
-        marketplaceListingMetadata(listing.contract_sale_id, wallet),
+        marketplaceListing(saleId, wallet),
+        marketplaceListingMetadata(saleId, wallet),
       ]);
-      if (after?.active || after?.seller !== walletAddress || metadata?.status !== "cancelled") {
+      if (after?.active || after?.seller?.toLowerCase() !== walletAddress.toLowerCase() || metadata?.status !== "cancelled") {
         throw new Error("Final NEAR state did not confirm the listing cancellation.");
       }
 
+      setListing(null);
+
       const indexed = await waitForIndexedListing({
-        contractListingId: listing.contract_sale_id,
+        contractListingId: saleId,
         status: "cancelled",
       });
 
@@ -441,6 +585,10 @@ function NFTDetails() {
     }
     if (!isConnected || !selector || !walletAddress) {
       setError("Connect the configured NEAR Testnet mint-authority wallet first.");
+      return;
+    }
+    if (mintAuthority && walletAddress.trim().toLowerCase() !== mintAuthority.trim().toLowerCase()) {
+      setError(`Connected wallet (${walletAddress}) is not the configured Testnet mint authority (${mintAuthority}). Only ${mintAuthority} can mint new NFTs on this contract.`);
       return;
     }
     if (!nft?.id || nft.token_id || nft.nft_contract_id || minting) return;
