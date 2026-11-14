@@ -579,3 +579,87 @@ await test('local dev origin allows both localhost:5173 and 127.0.0.1:5173', asy
   }));
   assert.equal(optDenied.status, 403);
 });
+
+await test('reproduce production failure: mismatched origin returns 403 with exact error payload', async () => {
+  // When NEAR_AUTH_APP_ORIGIN is set to localhost in production:
+  const prodLocalConfig = {
+    supabaseUrl: 'https://llqwiqhwrbfoxoqqgczy.supabase.co',
+    appOrigin: 'http://localhost:5173',
+    networkId: 'testnet',
+    serviceRoleKey: 'server-only-test-credential',
+  };
+  const handler = createWalletAuthHandler(prodLocalConfig, {
+    now: () => Date.now(),
+    fetchImpl: async () => new Response('{}', { status: 200 }),
+  });
+  const preflight = await handler(new Request('https://llqwiqhwrbfoxoqqgczy.supabase.co/functions/v1/near-wallet-auth', {
+    method: 'OPTIONS',
+    headers: {
+      Origin: 'https://market-place-iota-lyart.vercel.app',
+      'Access-Control-Request-Method': 'POST',
+      'Access-Control-Request-Headers': 'apikey, content-type, x-client-info',
+    },
+  }));
+  assert.equal(preflight.status, 403);
+  const data = await preflight.json();
+  assert.deepEqual(data, { error: 'Origin not allowed', code: 'AUTH_REJECTED' });
+});
+
+await test('production origin resolution: allows Vercel domain, multi-origin, and strict CORS headers', async () => {
+  const prodConfig = {
+    supabaseUrl: 'https://llqwiqhwrbfoxoqqgczy.supabase.co',
+    appOrigin: 'https://market-place-iota-lyart.vercel.app/, http://localhost:5173',
+    networkId: 'testnet',
+    serviceRoleKey: 'server-only-test-credential',
+  };
+  const handler = createWalletAuthHandler(prodConfig, {
+    now: () => Date.now(),
+    fetchImpl: async () => new Response('{}', { status: 200 }),
+  });
+
+  // 1. Vercel production origin OPTIONS preflight
+  const vercelOpt = await handler(new Request('https://llqwiqhwrbfoxoqqgczy.supabase.co/functions/v1/near-wallet-auth', {
+    method: 'OPTIONS',
+    headers: {
+      Origin: 'https://market-place-iota-lyart.vercel.app',
+      'Access-Control-Request-Method': 'POST',
+      'Access-Control-Request-Headers': 'apikey, content-type, x-client-info',
+    },
+  }));
+  assert.equal(vercelOpt.status, 204);
+  assert.equal(vercelOpt.headers.get('Access-Control-Allow-Origin'), 'https://market-place-iota-lyart.vercel.app');
+  assert.equal(vercelOpt.headers.get('Access-Control-Allow-Methods'), 'POST, OPTIONS');
+  assert.equal(vercelOpt.headers.get('Access-Control-Allow-Headers'), 'authorization, x-client-info, apikey, content-type');
+  assert.equal(vercelOpt.headers.get('Vary'), 'Origin');
+
+  // 2. Localhost dev origin OPTIONS preflight
+  const localOpt = await handler(new Request('https://llqwiqhwrbfoxoqqgczy.supabase.co/functions/v1/near-wallet-auth', {
+    method: 'OPTIONS',
+    headers: { Origin: 'http://localhost:5173' },
+  }));
+  assert.equal(localOpt.status, 204);
+  assert.equal(localOpt.headers.get('Access-Control-Allow-Origin'), 'http://localhost:5173');
+
+  // 3. Local 127.0.0.1 on matching port
+  const ipOpt = await handler(new Request('https://llqwiqhwrbfoxoqqgczy.supabase.co/functions/v1/near-wallet-auth', {
+    method: 'OPTIONS',
+    headers: { Origin: 'http://127.0.0.1:5173' },
+  }));
+  assert.equal(ipOpt.status, 204);
+  assert.equal(ipOpt.headers.get('Access-Control-Allow-Origin'), 'http://127.0.0.1:5173');
+
+  // 4. Unauthorized domain is rejected
+  const evilOpt = await handler(new Request('https://llqwiqhwrbfoxoqqgczy.supabase.co/functions/v1/near-wallet-auth', {
+    method: 'OPTIONS',
+    headers: { Origin: 'https://attacker.example' },
+  }));
+  assert.equal(evilOpt.status, 403);
+
+  // 5. Wildcard and insecure origin configs fail closed
+  for (const badOrigin of ['*', 'http://example.com', 'https://foo.com/path', '']) {
+    assert.throws(
+      () => createWalletAuthHandler({ ...prodConfig, appOrigin: badOrigin }),
+      /Invalid server-side wallet auth configuration/
+    );
+  }
+});

@@ -33,13 +33,38 @@ async function readBody(request) {
 
 export function createWalletAuthHandler(config, { fetchImpl = fetch, now = Date.now } = {}) {
   const project = new URL(config.supabaseUrl);
-  const origin = new URL(config.appOrigin);
   if (project.protocol !== 'https:' || project.username || project.password || project.search || project.hash ||
-      origin.origin !== config.appOrigin ||
-      (origin.protocol !== 'https:' && !['localhost', '127.0.0.1'].includes(origin.hostname)) ||
       !['testnet', 'mainnet'].includes(config.networkId) || !config.serviceRoleKey) {
     throw new Error('Invalid server-side wallet auth configuration');
   }
+
+  const rawOrigins = Array.isArray(config.appOrigin)
+    ? config.appOrigin
+    : typeof config.appOrigin === 'string'
+      ? config.appOrigin.split(',')
+      : [];
+
+  const parseAndValidateOrigin = (val) => {
+    if (typeof val !== 'string') return null;
+    const trimmed = val.trim().replace(/\/+$/, '');
+    if (!trimmed) return null;
+    try {
+      const u = new URL(trimmed);
+      if (u.origin !== trimmed) return null;
+      if (u.protocol === 'https:') return u.origin;
+      if (u.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(u.hostname)) return u.origin;
+      return null;
+    } catch {
+      return null;
+    }
+  };
+
+  if (rawOrigins.length === 0 || rawOrigins.some((raw) => !parseAndValidateOrigin(raw))) {
+    throw new Error('Invalid server-side wallet auth configuration');
+  }
+
+  const allowedOrigins = rawOrigins.map(parseAndValidateOrigin);
+  const primaryOrigin = allowedOrigins[0];
   const projectUrl = project.href.replace(/\/$/, '');
   const rpcUrl = config.networkId === 'mainnet' ? 'https://rpc.mainnet.near.org' : 'https://rpc.testnet.near.org';
   const isLocalOrigin = (url) => {
@@ -49,20 +74,22 @@ export function createWalletAuthHandler(config, { fetchImpl = fetch, now = Date.
         ['localhost', '127.0.0.1'].includes(u.hostname);
     } catch { return false; }
   };
-  const isLocalDev = isLocalOrigin(origin);
   const isOriginAllowed = (reqOrigin) => {
-    if (!reqOrigin) return false;
-    if (reqOrigin === origin.origin) return true;
-    if (isLocalDev && isLocalOrigin(reqOrigin)) {
-      const reqUrl = new URL(reqOrigin);
-      const targetPort = origin.port || (origin.protocol === 'https:' ? '443' : '80');
-      const reqPort = reqUrl.port || (reqUrl.protocol === 'https:' ? '443' : '80');
-      return reqPort === targetPort;
+    if (!reqOrigin || typeof reqOrigin !== 'string') return false;
+    if (allowedOrigins.includes(reqOrigin)) return true;
+    for (const o of allowedOrigins) {
+      if (isLocalOrigin(o) && isLocalOrigin(reqOrigin)) {
+        const reqUrl = new URL(reqOrigin);
+        const targetUrl = new URL(o);
+        const targetPort = targetUrl.port || (targetUrl.protocol === 'https:' ? '443' : '80');
+        const reqPort = reqUrl.port || (reqUrl.protocol === 'https:' ? '443' : '80');
+        if (reqPort === targetPort) return true;
+      }
     }
     return false;
   };
   const headers = {
-    'Access-Control-Allow-Origin': origin.origin,
+    'Access-Control-Allow-Origin': primaryOrigin,
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
     'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Vary': 'Origin',
     'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer',
@@ -163,14 +190,22 @@ export function createWalletAuthHandler(config, { fetchImpl = fetch, now = Date.
 
   return async function handle(request) {
     const reqOrigin = request.headers.get('origin');
-    const allowOrigin = isOriginAllowed(reqOrigin) ? reqOrigin : origin.origin;
+    const allowOrigin = isOriginAllowed(reqOrigin) ? reqOrigin : primaryOrigin;
     const responseHeaders = {
       ...headers,
       'Access-Control-Allow-Origin': allowOrigin,
     };
-    const reply = (body, status = 200) => new Response(body === null ? null : JSON.stringify(body), {
-      status, headers: { ...responseHeaders, 'Content-Type': 'application/json' },
-    });
+    const reply = (body, status = 200) => {
+      const respHeaders = { ...responseHeaders };
+      if (status === 204 || body === null) {
+        delete respHeaders['Content-Type'];
+      } else {
+        respHeaders['Content-Type'] = 'application/json';
+      }
+      return new Response(body === null ? null : JSON.stringify(body), {
+        status, headers: respHeaders,
+      });
+    };
     try {
       requireValue(isOriginAllowed(reqOrigin), 'Origin not allowed', 403);
       if (request.method === 'OPTIONS') return reply(null, 204);
@@ -207,7 +242,7 @@ export function createWalletAuthHandler(config, { fetchImpl = fetch, now = Date.
         const challenge = await rpc('wallet_auth_take_challenge', {
           p_id: body.challengeId, p_secret_hash: await sha256Hex(body.requestSecret),
         });
-        requireValue(challenge.origin === origin.origin && challenge.project === projectUrl &&
+        requireValue(isOriginAllowed(challenge.origin) && challenge.origin === allowOrigin && challenge.project === projectUrl &&
           challenge.networkId === config.networkId && Date.parse(challenge.expiresAt) > now(), 'Challenge context mismatch');
         if (challenge.phase === 'session') {
           const context = await sessionContext(request, challenge.accountId);
