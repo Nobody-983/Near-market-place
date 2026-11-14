@@ -41,7 +41,7 @@ export function WalletProvider({ children }) {
     const currentSelector = selectorRef.current;
     if (!acc || !currentSelector) return 0;
     const primary = currentSelector.options?.network?.nodeUrl || NODE_URL;
-    const endpoints = [...new Set([primary, "https://test.rpc.fastnear.com", "https://rpc.testnet.near.org"].filter(Boolean))];
+    const endpoints = [...new Set([primary, "https://rpc.testnet.fastnear.com", "https://test.rpc.fastnear.com", "https://rpc.testnet.near.org"].filter(Boolean))];
     for (let i = 0; i < endpoints.length; i++) {
       const endpoint = endpoints[i];
       try {

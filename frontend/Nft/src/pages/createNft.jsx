@@ -175,7 +175,7 @@ function CreateNFT() {
           },
         });
         const txHash = transactionHash(result);
-        const finalResult = await waitForFinal(txHash, walletAddress, wallet);
+        const finalResult = await waitForFinal(result || txHash, walletAddress, wallet);
         assertFinalSuccess(finalResult, "Edition mint");
         await requireConnectedAccount(walletAddress, wallet);
         const token = await mtToken(tokenId, wallet);
@@ -251,7 +251,7 @@ function CreateNFT() {
           },
         });
         const txHash = transactionHash(result);
-        const finalResult = await waitForFinal(txHash, walletAddress, wallet);
+        const finalResult = await waitForFinal(result || txHash, walletAddress, wallet);
         assertFinalSuccess(finalResult, "NFT mint");
         await requireConnectedAccount(walletAddress, wallet);
         const token = await nftToken(tokenId, wallet);
@@ -300,6 +300,54 @@ function CreateNFT() {
         }, 3000);
       }
     } catch (err) {
+      const errMsg = err?.message || "";
+      if (/already exists|duplicate token/i.test(errMsg)) {
+        try {
+          const recovered = isEdition
+            ? await mtToken(tokenId, wallet)
+            : await nftToken(tokenId, wallet);
+          if (recovered && (recovered.token_id === tokenId || recovered.id === tokenId)) {
+            const onChainOwner = recovered.owner_id || walletAddress;
+            const contractId = isEdition
+              ? (typeof EDITIONS_CONTRACT_ID !== "undefined" ? EDITIONS_CONTRACT_ID : "editions.roundfrog-dev.testnet")
+              : NFT_CONTRACT_ID;
+            const verifiedNft = {
+              ...nft,
+              token_id: tokenId,
+              nft_contract_id: contractId,
+              owner_id: onChainOwner,
+              onChainOwner,
+              model: isEdition ? "edition" : "unique",
+              ...(isEdition ? { edition_supply: supply } : {}),
+            };
+            setNfts((currentNFTs) =>
+              currentNFTs.map((item) => (item.id === nft.id ? verifiedNft : item))
+            );
+            if (typeof setMintSuccessNFT === "function") {
+              setMintSuccessNFT({
+                nft: verifiedNft,
+                tokenId,
+                contractId,
+                ownerId: onChainOwner,
+                txHash: null,
+                name: nft.name,
+                imageUrl: nft.image_url,
+                description: nft.description,
+                price: nft.price,
+                model: verifiedNft.model,
+                supply: isEdition ? supply : 1,
+                listed: false,
+                listingPrice: null,
+                contractListingId: null,
+              });
+            }
+            setSuccess(`“${nft.name}” was successfully confirmed on NEAR! You can now list it for sale.`);
+            return;
+          }
+        } catch {
+          // Fall through to standard error report
+        }
+      }
       setError(err?.message || "Unable to mint this NFT on NEAR Testnet.");
     } finally {
       setMinting(null);

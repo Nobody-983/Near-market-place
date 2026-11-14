@@ -3,12 +3,13 @@ const runtimeEnv = import.meta.env || {};
 export const NETWORK_ID = runtimeEnv.VITE_NEAR_NETWORK_ID || 'testnet';
 
 // Verified browser-CORS-compatible production Testnet RPC endpoints
-export const FASTNEAR_TESTNET_RPC = 'https://test.rpc.fastnear.com';
+export const FASTNEAR_TESTNET_RPC = 'https://rpc.testnet.fastnear.com';
 export const DEFAULT_TESTNET_RPC = FASTNEAR_TESTNET_RPC;
 export const OFFICIAL_TESTNET_RPC = 'https://rpc.testnet.near.org';
 export const DEV_RPC_PROXY = '/near-rpc';
 export const TESTNET_FALLBACK_RPCS = [
   FASTNEAR_TESTNET_RPC,
+  'https://test.rpc.fastnear.com',
   OFFICIAL_TESTNET_RPC,
 ];
 

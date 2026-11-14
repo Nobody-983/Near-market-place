@@ -11,7 +11,7 @@ import {
 } from '../../config/near';
 import { LISTING_STORAGE_TARGET_YOCTO } from '../../config/marketplace';
 
-const FASTNEAR_TESTNET_RPC = 'https://test.rpc.fastnear.com';
+const FASTNEAR_TESTNET_RPC = 'https://rpc.testnet.fastnear.com';
 const OFFICIAL_TESTNET_RPC = 'https://rpc.testnet.near.org';
 
 export const LEGACY_NFT_CONTRACT_ID = 'nft.roundfrog-dev.testnet';
@@ -48,7 +48,7 @@ function getNodeUrl(wallet) {
     }
     return 'http://localhost:5173/near-rpc';
   }
-  return 'https://test.rpc.fastnear.com';
+  return 'https://rpc.testnet.fastnear.com';
 }
 
 function timeoutSignal(ms) {
@@ -66,6 +66,7 @@ function getCandidateRpcEndpoints(wallet) {
   const candidates = [
     primary,
     FASTNEAR_TESTNET_RPC,
+    'https://test.rpc.fastnear.com',
     OFFICIAL_TESTNET_RPC,
   ].filter(Boolean);
   return [...new Set(candidates)];
@@ -574,7 +575,23 @@ export async function withdrawRefundOnChain(saleId, wallet) {
   return call(MARKETPLACE_CONTRACT_ID, 'withdraw_refund', { sale_id: saleId }, '1', wallet);
 }
 
-export async function waitForFinal(txHash, signerAccount, wallet, timeoutMs = 60000) {
+export async function waitForFinal(txResultOrHash, signerAccount, wallet, timeoutMs = 60000) {
+  // If the wallet or caller already supplied the finalized execution outcome, return it immediately
+  // without entering an unnecessary network polling loop.
+  if (
+    txResultOrHash &&
+    typeof txResultOrHash === 'object' &&
+    txResultOrHash.status &&
+    typeof txResultOrHash.status === 'object' &&
+    ('SuccessValue' in txResultOrHash.status || 'Failure' in txResultOrHash.status)
+  ) {
+    return txResultOrHash;
+  }
+
+  const txHash = typeof txResultOrHash === 'string'
+    ? txResultOrHash
+    : transactionHash(txResultOrHash);
+
   if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(txHash || '')) {
     throw new Error('Wallet returned an invalid NEAR transaction hash');
   }
@@ -593,7 +610,7 @@ export async function waitForFinal(txHash, signerAccount, wallet, timeoutMs = 60
     } catch {
       // A finalized status may not be available immediately after wallet return.
     }
-    await new Promise((r) => setTimeout(r, 2000));
+    await new Promise((r) => setTimeout(r, 1000));
   }
   throw new Error('Transaction confirmation timed out');
 }

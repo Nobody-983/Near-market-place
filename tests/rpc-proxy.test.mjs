@@ -18,6 +18,7 @@ test('resolveNodeUrl handles relative proxy paths in browser and node environmen
 });
 
 test('resolveNodeUrl preserves explicit full https RPC endpoints', () => {
+  assert.equal(resolveNodeUrl('https://rpc.testnet.fastnear.com'), 'https://rpc.testnet.fastnear.com');
   assert.equal(resolveNodeUrl('https://test.rpc.fastnear.com'), 'https://test.rpc.fastnear.com');
   assert.equal(resolveNodeUrl('https://rpc.testnet.near.org'), 'https://rpc.testnet.near.org');
 });
@@ -30,10 +31,11 @@ test('resolveNodeUrl falls back cleanly when no URL is configured', () => {
 
 test('constants export verified testnet endpoints and dev proxy path', () => {
   assert.equal(DEV_RPC_PROXY, '/near-rpc');
-  assert.equal(FASTNEAR_TESTNET_RPC, 'https://test.rpc.fastnear.com');
+  assert.equal(FASTNEAR_TESTNET_RPC, 'https://rpc.testnet.fastnear.com');
   assert.equal(OFFICIAL_TESTNET_RPC, 'https://rpc.testnet.near.org');
-  assert.equal(DEFAULT_TESTNET_RPC, 'https://test.rpc.fastnear.com');
+  assert.equal(DEFAULT_TESTNET_RPC, 'https://rpc.testnet.fastnear.com');
   assert.deepEqual(TESTNET_FALLBACK_RPCS, [
+    'https://rpc.testnet.fastnear.com',
     'https://test.rpc.fastnear.com',
     'https://rpc.testnet.near.org',
   ]);

@@ -13,7 +13,7 @@ if (typeof dns.setDefaultResultOrder === 'function') {
 }
 
 // Resilient NEAR RPC Proxy Plugin with automatic upstream failover
-function nearRpcProxyPlugin({ primaryUrl, fallbackUrl, fallbacks = ['https://rpc.testnet.fastnear.com'] }) {
+function nearRpcProxyPlugin({ primaryUrl, fallbackUrl, fallbacks = ['https://test.rpc.fastnear.com'] }) {
   return {
     name: 'near-rpc-proxy-middleware',
     configureServer(server) {
@@ -42,7 +42,7 @@ function nearRpcProxyPlugin({ primaryUrl, fallbackUrl, fallbacks = ['https://rpc
         for (const endpoint of endpoints) {
           try {
             const controller = new AbortController()
-            const timer = setTimeout(() => controller.abort(), 6000)
+            const timer = setTimeout(() => controller.abort(), 5000)
             let response
             try {
               response = await fetch(endpoint, {
@@ -105,7 +105,7 @@ function nearRpcProxyPlugin({ primaryUrl, fallbackUrl, fallbacks = ['https://rpc
 // Point the `buffer` module to the real package so Vite bundles it for the browser.
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
-  const primaryRpc = env.NEAR_RPC_TARGET || env.VITE_NEAR_UPSTREAM_RPC || 'https://test.rpc.fastnear.com'
+  const primaryRpc = env.NEAR_RPC_TARGET || env.VITE_NEAR_UPSTREAM_RPC || 'https://rpc.testnet.fastnear.com'
   const fallbackRpc = 'https://rpc.testnet.near.org'
 
   return {
