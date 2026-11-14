@@ -524,7 +524,7 @@ export async function ensureMarketplaceListingStorage({ sellerId, wallet }) {
   const deposit = balance ? shortfall : shortfall + minimum;
   const result = await depositMarketplaceStorage(deposit.toString(), wallet, sellerId);
   const txHash = transactionHash(result);
-  const finalResult = await waitForFinal(txHash, sellerId, wallet);
+  const finalResult = await waitForFinal(result || txHash, sellerId, wallet);
   assertFinalSuccess(finalResult, 'Marketplace storage deposit');
   await requireConnectedAccount(sellerId, wallet);
   const confirmed = await marketplaceStorageBalance(sellerId, wallet);
@@ -612,17 +612,18 @@ export async function withdrawRefundOnChain(saleId, wallet) {
   return call(MARKETPLACE_CONTRACT_ID, 'withdraw_refund', { sale_id: saleId }, '1', wallet);
 }
 
-export async function waitForFinal(txResultOrHash, signerAccount, wallet, timeoutMs = 60000) {
+export async function waitForFinal(txResultOrHash, signerAccount, wallet, timeoutMs = 60000, onProgress = null) {
   // If the wallet or caller already supplied the finalized execution outcome, return it immediately
   // without entering an unnecessary network polling loop.
+  const outcome = Array.isArray(txResultOrHash) ? txResultOrHash[0] : txResultOrHash;
   if (
-    txResultOrHash &&
-    typeof txResultOrHash === 'object' &&
-    txResultOrHash.status &&
-    typeof txResultOrHash.status === 'object' &&
-    ('SuccessValue' in txResultOrHash.status || 'Failure' in txResultOrHash.status)
+    outcome &&
+    typeof outcome === 'object' &&
+    outcome.status &&
+    typeof outcome.status === 'object' &&
+    ('SuccessValue' in outcome.status || 'Failure' in outcome.status)
   ) {
-    return txResultOrHash;
+    return outcome;
   }
 
   const txHash = typeof txResultOrHash === 'string'
@@ -634,20 +635,26 @@ export async function waitForFinal(txResultOrHash, signerAccount, wallet, timeou
   }
   const provider = providerFor(wallet);
   if (!provider) throw new Error('Wallet not connected');
+
+  if (typeof onProgress === 'function') {
+    onProgress('Processing on NEAR...');
+  }
+
   const deadline = Date.now() + timeoutMs;
+  let interval = 400;
   while (Date.now() < deadline) {
     try {
       const result = await provider.txStatus(txHash, signerAccount, 'FINAL');
-      if (result.status && typeof result.status === 'object' && 'SuccessValue' in result.status) {
-        return result;
-      }
-      if (result.status && typeof result.status === 'object' && 'Failure' in result.status) {
-        return result;
+      const finalOutcome = Array.isArray(result) ? result[0] : result;
+      if (finalOutcome?.status && typeof finalOutcome.status === 'object' &&
+          ('SuccessValue' in finalOutcome.status || 'Failure' in finalOutcome.status)) {
+        return finalOutcome;
       }
     } catch {
       // A finalized status may not be available immediately after wallet return.
     }
-    await new Promise((r) => setTimeout(r, 1000));
+    await new Promise((r) => setTimeout(r, interval));
+    interval = Math.min(1000, interval + 200);
   }
   throw new Error('Transaction confirmation timed out');
 }

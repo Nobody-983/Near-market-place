@@ -64,3 +64,4 @@ test('production NEAR Testnet RPC endpoint query for NFT contract code hash matc
   assert.equal(data.jsonrpc, '2.0');
   assert.equal(data.result?.hash, '7Xwtpb4JsXxmcdgCNEJdQVnAUQqYjWYFAvbtK7vXexh7');
 });
+

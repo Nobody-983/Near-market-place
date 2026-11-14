@@ -113,7 +113,7 @@ function Wallet() {
           : await withdrawRefundOnChain(saleId, wallet);
       const txHash = transactionHash(result);
       if (!txHash) throw new Error("Wallet did not return a withdrawal transaction hash.");
-      const finalResult = await waitForFinal(txHash, walletAddress, wallet);
+      const finalResult = await waitForFinal(result || txHash, walletAddress, wallet);
       if (finalResult?.status?.Failure) throw new Error("Marketplace withdrawal failed.");
       await requireConnectedAccount(walletAddress, wallet);
       await Promise.all([refreshBalance(walletAddress), refreshMarketplace()]);

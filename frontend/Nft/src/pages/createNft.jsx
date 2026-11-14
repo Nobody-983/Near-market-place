@@ -118,6 +118,7 @@ function CreateNFT() {
   const [deleting, setDeleting] = useState(null);
   const [minting, setMinting] = useState(null);
   const [listing, setListing] = useState(null);
+  const [listingStep, setListingStep] = useState("");
   const [cancelling, setCancelling] = useState(null);
 
   const [listingNFT, setListingNFT] = useState(null);
@@ -880,6 +881,7 @@ function CreateNFT() {
       const isEdition = listingNFT.model === "edition" || (typeof EDITIONS_CONTRACT_ID !== "undefined" && listingNFT.nft_contract_id === EDITIONS_CONTRACT_ID);
       if (isEdition) {
         const qty = Number(listingForm.quantity || 1);
+        if (typeof setListingStep === "function") setListingStep("Submitting transaction to wallet...");
         const result = await listEditionOnChain({
           tokenId,
           quantity: qty,
@@ -887,9 +889,12 @@ function CreateNFT() {
           wallet,
         });
         const txHash = transactionHash(result);
-        const finalResult = await waitForFinal(txHash, walletAddress, wallet);
+        if (typeof setListingStep === "function") setListingStep("Transaction submitted. Processing on NEAR...");
+        const onProgress = typeof setListingStep === "function" ? setListingStep : undefined;
+        const finalResult = await waitForFinal(result || txHash, walletAddress, wallet, 60000, onProgress);
         assertFinalSuccess(finalResult, "Edition listing");
         await requireConnectedAccount(walletAddress, wallet);
+        if (typeof setListingStep === "function") setListingStep("Verifying on-chain listing state...");
         const contractListingId = `edition|${tokenId}|${walletAddress}`;
         setListings((prev) => [
           {
@@ -919,6 +924,7 @@ function CreateNFT() {
         }
         setListingNFT(null);
         setListingForm({ price: "", currency: "NEAR", quantity: "1" });
+        if (typeof setListingStep === "function") setListingStep("");
         await fetchListings();
         if (typeof fetchNFTs === "function") await fetchNFTs();
         return;
@@ -932,6 +938,7 @@ function CreateNFT() {
       });
       await ensureMarketplaceListingStorage({ sellerId: walletAddress, wallet });
       await requireConnectedAccount(walletAddress, wallet);
+      if (typeof setListingStep === "function") setListingStep("Submitting transaction to wallet...");
       const result = await listNftOnChain({
         nftContractId,
         tokenId,
@@ -939,9 +946,12 @@ function CreateNFT() {
         wallet,
       });
       const txHash = transactionHash(result);
-      const finalResult = await waitForFinal(txHash, walletAddress, wallet);
+      if (typeof setListingStep === "function") setListingStep("Transaction submitted. Processing on NEAR...");
+      const onProgress = typeof setListingStep === "function" ? setListingStep : undefined;
+      const finalResult = await waitForFinal(result || txHash, walletAddress, wallet, 60000, onProgress);
       assertFinalSuccess(finalResult, "Listing approval");
       await requireConnectedAccount(walletAddress, wallet);
+      if (typeof setListingStep === "function") setListingStep("Verifying on-chain listing state...");
       const contractListingId = listingIdFromFinalResult(finalResult, {
         nftContractId,
         tokenId,
@@ -983,8 +993,6 @@ function CreateNFT() {
         } : prev));
       }
 
-      const indexed = await waitForIndexedListing({ transactionHash: txHash, status: "active" });
-
       const nftName = listingNFT.name;
 
       setListingNFT(null);
@@ -993,12 +1001,28 @@ function CreateNFT() {
         price: "",
         currency: "NEAR",
       });
+      if (typeof setListingStep === "function") setListingStep("");
+
+      // On-chain listing is fully confirmed. Check indexer with short timeout (2.5s) to avoid UI blocking.
+      const indexed = await waitForIndexedListing({ transactionHash: txHash, status: "active", timeoutMs: 2500 }).catch(() => null);
 
       setSuccess(indexed
         ? `"${nftName}" is listed on NEAR at ${price} NEAR and verified in the marketplace catalog.`
         : `"${nftName}" is listed on NEAR at ${price} NEAR. Catalog verification is still pending; the item will appear after the trusted indexer catches up.`);
       await fetchListings();
       if (typeof fetchNFTs === "function") await fetchNFTs();
+
+      // If catalog indexing is still catching up, background poll updates catalog without blocking the user
+      if (!indexed) {
+        waitForIndexedListing({ transactionHash: txHash, status: "active", timeoutMs: 30000 })
+          .then(async (bg) => {
+            if (bg) {
+              await fetchListings();
+              if (typeof fetchNFTs === "function") await fetchNFTs();
+            }
+          })
+          .catch(() => {});
+      }
     } catch (err) {
       console.error("NFT listing error:", err);
 
@@ -1008,6 +1032,7 @@ function CreateNFT() {
       );
     } finally {
       setListing(null);
+      if (typeof setListingStep === "function") setListingStep("");
     }
   };
 
@@ -1067,7 +1092,7 @@ function CreateNFT() {
           wallet,
         });
         const txHash = transactionHash(result);
-        const finalResult = await waitForFinal(txHash, walletAddress, wallet);
+        const finalResult = await waitForFinal(result || txHash, walletAddress, wallet);
         assertFinalSuccess(finalResult, "Edition listing cancellation");
         setSuccess(`"${nft.name}" listing was cancelled on NEAR and escrowed copies returned to your wallet.`);
         await fetchListings();
@@ -1080,7 +1105,7 @@ function CreateNFT() {
       }
       const result = await cancelListingOnChain(saleId, wallet);
       const txHash = transactionHash(result);
-      const finalResult = await waitForFinal(txHash, walletAddress, wallet);
+      const finalResult = await waitForFinal(result || txHash, walletAddress, wallet);
       assertFinalSuccess(finalResult, "Listing cancellation");
       await requireConnectedAccount(walletAddress, wallet);
       const [after, metadata] = await Promise.all([
@@ -1094,12 +1119,23 @@ function CreateNFT() {
       const indexed = await waitForIndexedListing({
         contractListingId: saleId,
         status: "cancelled",
-      });
+        timeoutMs: 2500,
+      }).catch(() => null);
 
       setSuccess(indexed
         ? `"${nft.name}" was cancelled on NEAR and removed from the verified catalog.`
         : `"${nft.name}" was cancelled on NEAR. Trusted indexer verification is still pending.`);
       await fetchListings();
+
+      if (!indexed) {
+        waitForIndexedListing({
+          contractListingId: saleId,
+          status: "cancelled",
+          timeoutMs: 30000,
+        }).then(async (bg) => {
+          if (bg) await fetchListings();
+        }).catch(() => {});
+      }
     } catch (err) {
       console.error(
         "Cancel listing error:",
@@ -1997,7 +2033,7 @@ function CreateNFT() {
                         size={17}
                         className="animate-spin"
                       />
-                      Listing...
+                      {listingStep || "Processing..."}
                     </>
                   ) : (
                     <>
@@ -2007,6 +2043,12 @@ function CreateNFT() {
                   )}
                 </button>
               </div>
+              {listing === listingNFT.id && listingStep && (
+                <div className="mt-3 flex items-center justify-center gap-2 text-xs text-purple-300">
+                  <span className="inline-block h-2 w-2 rounded-full bg-purple-400 animate-pulse" />
+                  <span>{listingStep}</span>
+                </div>
+              )}
             </form>
           </div>
         </div>

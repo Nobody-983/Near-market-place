@@ -71,6 +71,7 @@ function NFTDetails() {
   const [loading, setLoading] = useState(true);
   const [buying, setBuying] = useState(false);
   const [listingLoading, setListingLoading] = useState(false);
+  const [listingStep, setListingStep] = useState("");
   const [cancelling, setCancelling] = useState(false);
   const [minting, setMinting] = useState(false);
   const [showListingModal, setShowListingModal] = useState(false);
@@ -410,7 +411,7 @@ function NFTDetails() {
           wallet,
         });
         const txHash = transactionHash(result);
-        const finalResult = await waitForFinal(txHash, walletAddress, wallet);
+        const finalResult = await waitForFinal(result || txHash, walletAddress, wallet);
         assertFinalSuccess(finalResult, "Edition purchase");
         await requireConnectedAccount(walletAddress, wallet);
         setSuccess(`Successfully bought ${qty} ${qty === 1 ? 'copy' : 'copies'} on NEAR!`);
@@ -446,7 +447,7 @@ function NFTDetails() {
         wallet,
       );
       const txHash = transactionHash(result);
-      const finalResult = await waitForFinal(txHash, walletAddress, wallet);
+      const finalResult = await waitForFinal(result || txHash, walletAddress, wallet);
       assertFinalSuccess(finalResult, "NFT purchase");
       await requireConnectedAccount(walletAddress, wallet);
       const saleId = `${listing.contract_sale_id}|${walletAddress}|${chainMeta.generation}`;
@@ -532,7 +533,7 @@ function NFTDetails() {
           wallet,
         });
         const txHash = transactionHash(result);
-        const finalResult = await waitForFinal(txHash, walletAddress, wallet);
+        const finalResult = await waitForFinal(result || txHash, walletAddress, wallet);
         assertFinalSuccess(finalResult, "Edition listing");
         await requireConnectedAccount(walletAddress, wallet);
         setSuccess(`"${nft.name}" (${qty} copies) is listed for sale on NEAR at ${price} NEAR each.`);
@@ -549,6 +550,7 @@ function NFTDetails() {
       });
       await ensureMarketplaceListingStorage({ sellerId: walletAddress, wallet });
       await requireConnectedAccount(walletAddress, wallet);
+      if (typeof setListingStep === "function") setListingStep("Submitting transaction to wallet...");
       const result = await listNftOnChain({
         nftContractId,
         tokenId,
@@ -556,9 +558,12 @@ function NFTDetails() {
         wallet,
       });
       const txHash = transactionHash(result);
-      const finalResult = await waitForFinal(txHash, walletAddress, wallet);
+      if (typeof setListingStep === "function") setListingStep("Transaction submitted. Processing on NEAR...");
+      const onProgress = typeof setListingStep === "function" ? setListingStep : undefined;
+      const finalResult = await waitForFinal(result || txHash, walletAddress, wallet, 60000, onProgress);
       assertFinalSuccess(finalResult, "Listing approval");
       await requireConnectedAccount(walletAddress, wallet);
+      if (typeof setListingStep === "function") setListingStep("Verifying on-chain listing state...");
       const contractListingId = listingIdFromFinalResult(finalResult, {
         nftContractId,
         tokenId,
@@ -577,6 +582,8 @@ function NFTDetails() {
 
       setShowListingModal(false);
       setListingPrice("");
+      setListingLoading(false);
+      if (typeof setListingStep === "function") setListingStep("");
 
       setListing({
         id: contractListingId,
@@ -593,17 +600,27 @@ function NFTDetails() {
         marketplace_contract_id: MARKETPLACE_CONTRACT_ID,
       });
 
-      const indexed = await waitForIndexedListing({ transactionHash: txHash, status: "active" });
+      // Rapid catalog indexing check (2.5s) to avoid freezing UI
+      const indexed = await waitForIndexedListing({ transactionHash: txHash, status: "active", timeoutMs: 2500 }).catch(() => null);
 
       setSuccess(indexed
         ? `"${nft.name}" is listed on NEAR and verified in the marketplace catalog.`
         : `"${nft.name}" is listed on NEAR. Catalog verification is still pending; the item will appear after the trusted indexer catches up.`);
       await fetchNFTDetails();
+
+      if (!indexed) {
+        waitForIndexedListing({ transactionHash: txHash, status: "active", timeoutMs: 30000 })
+          .then(async (bg) => {
+            if (bg) await fetchNFTDetails();
+          })
+          .catch(() => {});
+      }
     } catch (err) {
       console.error("NFT listing error:", err);
       setError(err?.message || "Unable to list this NFT.");
     } finally {
       setListingLoading(false);
+      if (typeof setListingStep === "function") setListingStep("");
     }
   };
 
@@ -645,7 +662,7 @@ function NFTDetails() {
           wallet,
         });
         const txHash = transactionHash(result);
-        const finalResult = await waitForFinal(txHash, walletAddress, wallet);
+        const finalResult = await waitForFinal(result || txHash, walletAddress, wallet);
         assertFinalSuccess(finalResult, "Edition listing cancellation");
         setSuccess(`"${nft?.name || "Edition"}" listing was cancelled on NEAR.`);
         setListing(null);
@@ -659,7 +676,7 @@ function NFTDetails() {
       }
       const result = await cancelListingOnChain(saleId, wallet);
       const txHash = transactionHash(result);
-      const finalResult = await waitForFinal(txHash, walletAddress, wallet);
+      const finalResult = await waitForFinal(result || txHash, walletAddress, wallet);
       assertFinalSuccess(finalResult, "Listing cancellation");
       await requireConnectedAccount(walletAddress, wallet);
       const [after, metadata] = await Promise.all([
@@ -675,12 +692,23 @@ function NFTDetails() {
       const indexed = await waitForIndexedListing({
         contractListingId: saleId,
         status: "cancelled",
-      });
+        timeoutMs: 2500,
+      }).catch(() => null);
 
       setSuccess(indexed
         ? `"${nft?.name || "NFT"}" was cancelled on NEAR and removed from the verified catalog.`
         : `"${nft?.name || "NFT"}" was cancelled on NEAR. Trusted indexer verification is still pending.`);
       await fetchNFTDetails();
+
+      if (!indexed) {
+        waitForIndexedListing({
+          contractListingId: saleId,
+          status: "cancelled",
+          timeoutMs: 30000,
+        }).then(async (bg) => {
+          if (bg) await fetchNFTDetails();
+        }).catch(() => {});
+      }
     } catch (err) {
       console.error("Cancel listing error:", err);
       setError(err?.message || "Unable to remove this listing.");
@@ -723,7 +751,7 @@ function NFTDetails() {
           },
         });
         const txHash = transactionHash(result);
-        const finalResult = await waitForFinal(txHash, walletAddress, wallet);
+        const finalResult = await waitForFinal(result || txHash, walletAddress, wallet);
         assertFinalSuccess(finalResult, "Edition mint");
         setSuccess(`Edition “${nft.name}” (${supply} copies) was minted on NEAR.`);
       } else {
@@ -747,7 +775,7 @@ function NFTDetails() {
           },
         });
         const txHash = transactionHash(result);
-        const finalResult = await waitForFinal(txHash, walletAddress, wallet);
+        const finalResult = await waitForFinal(result || txHash, walletAddress, wallet);
         assertFinalSuccess(finalResult, "NFT mint");
         await requireConnectedAccount(walletAddress, wallet);
         const token = await nftToken(tokenId, wallet);
@@ -1169,7 +1197,7 @@ function NFTDetails() {
                   {listingLoading ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin" />
-                      Listing...
+                      {listingStep || "Processing..."}
                     </>
                   ) : (
                     <>
@@ -1179,6 +1207,12 @@ function NFTDetails() {
                   )}
                 </button>
               </div>
+              {listingLoading && listingStep && (
+                <div className="mt-3 flex items-center justify-center gap-2 text-xs text-purple-300">
+                  <span className="inline-block h-2 w-2 rounded-full bg-purple-400 animate-pulse" />
+                  <span>{listingStep}</span>
+                </div>
+              )}
             </form>
           </div>
         </div>

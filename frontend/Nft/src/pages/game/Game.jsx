@@ -365,7 +365,7 @@ function Game() {
       });
       const txHash = transactionHash(result);
       setMintStatus("Waiting for on-chain block finality...");
-      const finalResult = await waitForFinal(txHash, walletAddress, wallet);
+      const finalResult = await waitForFinal(result || txHash, walletAddress, wallet);
       assertFinalSuccess(finalResult, "Game reward NFT mint");
       await requireConnectedAccount(walletAddress, wallet);
       const token = await nftToken(tokenId, wallet);
