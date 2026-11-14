@@ -60,6 +60,7 @@ async function loadContractModule(envOverrides = {}) {
 
 const alice = 'alice.roundfrog-dev.testnet';
 const bob = 'bob.roundfrog-dev.testnet';
+const charlie = 'charlie.roundfrog-dev.testnet';
 
 function createMockWallet(activeAccountId, contractState = {}) {
   const sentCalls = [];
@@ -67,6 +68,7 @@ function createMockWallet(activeAccountId, contractState = {}) {
     tokens: {}, // tokenId -> { owner_id, token_id, metadata }
     storage: {}, // accountId -> available yocto
     listings: {}, // listingId -> listing
+    ever_minted: {}, // permanent ever_minted registry
     ...contractState,
   };
 
@@ -91,6 +93,10 @@ function createMockWallet(activeAccountId, contractState = {}) {
         }
         if (methodName === 'testnet_mint_authority') {
           return { result: [...Buffer.from(JSON.stringify('roundfrog-dev.testnet'))] };
+        }
+        if (methodName === 'token_id_status') {
+          const status = state.ever_minted[args.token_id] || (state.tokens[args.token_id] ? 'Live' : null);
+          return { result: [...Buffer.from(JSON.stringify(status))] };
         }
         if (methodName === 'config') {
           return {
@@ -135,6 +141,10 @@ function createMockWallet(activeAccountId, contractState = {}) {
 
       if (methodName === 'nft_mint') {
         const tokenId = args.token_id;
+        if (state.ever_minted[tokenId]) {
+          throw new Error('Smart contract panicked: token_id must be unique and never reused');
+        }
+        state.ever_minted[tokenId] = 'Live';
         const ownerId = args.token_owner_id;
         state.tokens[tokenId] = { token_id: tokenId, owner_id: ownerId, metadata: args.token_metadata };
         return {
@@ -211,11 +221,11 @@ function createMockWallet(activeAccountId, contractState = {}) {
   };
 }
 
-test('1 & 2. Permissionless minting: Wallet A can mint and Wallet B can mint', async () => {
+test('1 & 2. Permissionless minting: Wallets A, B, and C can independently mint', async () => {
   const contract = await loadContractModule();
   const sharedState = { tokens: {}, storage: {}, listings: {} };
 
-  // Wallet A mints
+  // Wallet A (Alice) mints
   const walletA = createMockWallet(alice, sharedState);
   const mintResultA = await contract.mintNftOnChain({
     tokenId: 'token-a-1',
@@ -225,7 +235,7 @@ test('1 & 2. Permissionless minting: Wallet A can mint and Wallet B can mint', a
   assert.ok(mintResultA.transaction.hash.includes('token-a-1'));
   assert.equal(sharedState.tokens['token-a-1'].owner_id, alice);
 
-  // Wallet B mints
+  // Wallet B (Bob) mints
   const walletB = createMockWallet(bob, sharedState);
   const mintResultB = await contract.mintNftOnChain({
     tokenId: 'token-b-1',
@@ -234,14 +244,25 @@ test('1 & 2. Permissionless minting: Wallet A can mint and Wallet B can mint', a
   });
   assert.ok(mintResultB.transaction.hash.includes('token-b-1'));
   assert.equal(sharedState.tokens['token-b-1'].owner_id, bob);
+
+  // Wallet C (Charlie) mints
+  const walletC = createMockWallet(charlie, sharedState);
+  const mintResultC = await contract.mintNftOnChain({
+    tokenId: 'token-c-1',
+    metadata: { title: 'Charlie Token' },
+    wallet: walletC,
+  });
+  assert.ok(mintResultC.transaction.hash.includes('token-c-1'));
+  assert.equal(sharedState.tokens['token-c-1'].owner_id, charlie);
 });
 
-test('3. Each wallet initially owns its own NFT', async () => {
+test('3. Each wallet independently owns and views its own distinct NFT', async () => {
   const contract = await loadContractModule();
   const sharedState = {
     tokens: {
       'token-a-1': { token_id: 'token-a-1', owner_id: alice },
       'token-b-1': { token_id: 'token-b-1', owner_id: bob },
+      'token-c-1': { token_id: 'token-c-1', owner_id: charlie },
     },
     storage: {},
     listings: {},
@@ -254,7 +275,13 @@ test('3. Each wallet initially owns its own NFT', async () => {
   const walletB = createMockWallet(bob, sharedState);
   const tokenB = await contract.nftToken('token-b-1', walletB, 'nft-v2.roundfrog-dev.testnet');
   assert.equal(tokenB.owner_id, bob);
+
+  const walletC = createMockWallet(charlie, sharedState);
+  const tokenC = await contract.nftToken('token-c-1', walletC, 'nft-v2.roundfrog-dev.testnet');
+  assert.equal(tokenC.owner_id, charlie);
+
   assert.notEqual(tokenA.owner_id, tokenB.owner_id);
+  assert.notEqual(tokenB.owner_id, tokenC.owner_id);
 });
 
 test("4. Wallet A cannot list Wallet B's NFT without authorization", async () => {
@@ -483,4 +510,91 @@ test("10. Storage deposits and settlement accounting remain correct", async () =
   assert.equal(storageRes.funded, true);
   assert.equal(storageRes.transactionHash, validBase58TxHash);
   assert.ok(BigInt(storageRes.balance.available) >= 120000000000000000000000n);
+});
+
+test("11. Duplicate token ID submission fails with uniqueness contract error", async () => {
+  const contract = await loadContractModule();
+  const sharedState = {
+    tokens: { 'token-existing-1': { token_id: 'token-existing-1', owner_id: alice } },
+    ever_minted: { 'token-existing-1': 'Live' },
+    storage: {},
+    listings: {},
+  };
+
+  const walletB = createMockWallet(bob, sharedState);
+  await assert.rejects(
+    contract.mintNftOnChain({
+      tokenId: 'token-existing-1',
+      metadata: { title: 'Duplicate Attempt' },
+      wallet: walletB,
+    }),
+    /token_id must be unique and never reused/
+  );
+});
+
+test("12. generateUniqueTokenId detects on-chain collisions and generates guaranteed unique IDs", async () => {
+  const contract = await loadContractModule();
+  const sharedState = {
+    tokens: { 'catalog-collision-1': { token_id: 'catalog-collision-1', owner_id: alice } },
+    ever_minted: { 'catalog-collision-1': 'Live' },
+    storage: {},
+    listings: {},
+  };
+
+  const walletC = createMockWallet(charlie, sharedState);
+
+  // When candidate is collision-free:
+  const freshCandidate = await contract.generateUniqueTokenId('fresh-new-id', walletC, 'nft-v2.roundfrog-dev.testnet');
+  assert.equal(freshCandidate, 'catalog-fresh-new-id');
+
+  // When candidate collides with existing on-chain token:
+  const resolvedCandidate = await contract.generateUniqueTokenId('collision-1', walletC, 'nft-v2.roundfrog-dev.testnet');
+  assert.notEqual(resolvedCandidate, 'catalog-collision-1');
+  assert.match(resolvedCandidate, /^catalog-[0-9a-f-]{10,}/);
+
+  // Minting with resolved candidate succeeds without uniqueness collision
+  const mintRes = await contract.mintNftOnChain({
+    tokenId: resolvedCandidate,
+    metadata: { title: 'Charlie Resolved Token' },
+    wallet: walletC,
+  });
+  assert.ok(mintRes.transaction.hash.includes(resolvedCandidate));
+  assert.equal(sharedState.tokens[resolvedCandidate].owner_id, charlie);
+});
+
+test("13. Wallet C can list its own NFT and cross-listing by Wallet A is rejected", async () => {
+  const contract = await loadContractModule();
+  const sharedState = {
+    tokens: {
+      'token-c-1': { token_id: 'token-c-1', owner_id: charlie },
+    },
+    storage: { [charlie]: '150000000000000000000000', [alice]: '150000000000000000000000' },
+    listings: {},
+  };
+
+  // Alice cannot list Charlie's NFT
+  const walletA = createMockWallet(alice, sharedState);
+  await assert.rejects(
+    contract.verifyListingPreconditions({
+      nftContractId: 'nft-v2.roundfrog-dev.testnet',
+      tokenId: 'token-c-1',
+      sellerId: alice,
+      wallet: walletA,
+    }),
+    /Connected wallet is not the current on-chain NFT owner/
+  );
+
+  // Charlie can list his own NFT
+  const walletC = createMockWallet(charlie, sharedState);
+  const approveRes = await contract.listNftOnChain({
+    nftContractId: 'nft-v2.roundfrog-dev.testnet',
+    tokenId: 'token-c-1',
+    priceNear: '3.5',
+    wallet: walletC,
+  });
+  assert.ok(approveRes.transaction.hash.includes('token-c-1'));
+  const listingId = Object.keys(sharedState.listings)[0];
+  assert.ok(listingId);
+  assert.equal(sharedState.listings[listingId].seller, charlie);
+  assert.equal(sharedState.listings[listingId].active, true);
 });

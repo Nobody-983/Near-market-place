@@ -49,9 +49,13 @@ export const LEGACY_MARKETPLACE_CODE_HASH = 'Fp3ggF3WmSMQC7m9FU717jA8nB897sYW6bi
 export const PERMISSIONLESS_NFT_CODE_HASH = '7Xwtpb4JsXxmcdgCNEJdQVnAUQqYjWYFAvbtK7vXexh7';
 export const ENHANCED_MARKETPLACE_CODE_HASH = '2vpgmXoZSpnPgcAkE6hR4dy9EnjogNLcW2vbkECADM2y';
 
-// Configurable contract accounts with fallback to legacy
-export const NFT_CONTRACT_ID = runtimeEnv.VITE_NFT_CONTRACT_ID || LEGACY_NFT_CONTRACT_ID;
-export const MARKETPLACE_CONTRACT_ID = runtimeEnv.VITE_MARKETPLACE_CONTRACT_ID || LEGACY_MARKETPLACE_CONTRACT_ID;
+// Reviewed V2 Permissionless Testnet deployments
+export const V2_NFT_CONTRACT_ID = 'nft-v2.roundfrog-dev.testnet';
+export const V2_MARKETPLACE_CONTRACT_ID = 'market-v2.roundfrog-dev.testnet';
+
+// Configurable contract accounts with fallback to reviewed permissionless V2 deployment
+export const NFT_CONTRACT_ID = runtimeEnv.VITE_NFT_CONTRACT_ID || V2_NFT_CONTRACT_ID;
+export const MARKETPLACE_CONTRACT_ID = runtimeEnv.VITE_MARKETPLACE_CONTRACT_ID || V2_MARKETPLACE_CONTRACT_ID;
 export const EDITIONS_CONTRACT_ID = runtimeEnv.VITE_EDITIONS_CONTRACT_ID || 'editions.roundfrog-dev.testnet';
 
 // Active reviewed aliases for backward-compatible interface and assertion checks

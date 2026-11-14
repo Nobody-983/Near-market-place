@@ -338,6 +338,39 @@ export function nftToken(tokenId, wallet, nftContractId = NFT_CONTRACT_ID) {
   return view(nftContractId, 'nft_token', { token_id: tokenId }, wallet);
 }
 
+export async function tokenIdStatus(tokenId, wallet, nftContractId = NFT_CONTRACT_ID) {
+  try {
+    return await view(nftContractId, 'token_id_status', { token_id: tokenId }, wallet);
+  } catch {
+    return null;
+  }
+}
+
+export async function generateUniqueTokenId(baseId, wallet, nftContractId = NFT_CONTRACT_ID) {
+  const clean = String(baseId || '').trim();
+  const candidate = clean.startsWith('catalog-') ? clean : `catalog-${clean}`;
+
+  // Check if candidate is unused on-chain
+  const status = await tokenIdStatus(candidate, wallet, nftContractId);
+  if (!status) {
+    return candidate;
+  }
+
+  // If already used in ever_minted, generate a guaranteed fresh unique UUID token ID
+  for (let i = 0; i < 5; i++) {
+    const freshUuid = typeof globalThis.crypto?.randomUUID === 'function'
+      ? globalThis.crypto.randomUUID()
+      : `${Date.now().toString(16)}-${Math.random().toString(16).slice(2, 10)}`;
+    const freshCandidate = `catalog-${freshUuid}`;
+    const freshStatus = await tokenIdStatus(freshCandidate, wallet, nftContractId);
+    if (!freshStatus) {
+      return freshCandidate;
+    }
+  }
+
+  return `catalog-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 export function nftTokensForOwner(accountId, wallet, { fromIndex = '0', limit = 50, nftContractId = NFT_CONTRACT_ID } = {}) {
   return view(nftContractId, 'nft_tokens_for_owner', { account_id: accountId, from_index: String(fromIndex), limit: Number(limit) }, wallet);
 }

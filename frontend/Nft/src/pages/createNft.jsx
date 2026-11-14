@@ -40,6 +40,7 @@ import {
   cancelListingOnChain,
   cancelEditionListingOnChain,
   ensureMarketplaceListingStorage,
+  generateUniqueTokenId,
   listingIdFromFinalResult,
   listNftOnChain,
   listEditionOnChain,
@@ -144,16 +145,28 @@ function CreateNFT() {
     }
     if (!nft?.id || nft.token_id || nft.nft_contract_id || minting) return;
 
-    const tokenId = `catalog-${nft.id}`;
     const wallet = { selector, accountId: walletAddress };
     const isEdition = nft.model === "edition" || (nft.edition_supply && Number(nft.edition_supply) > 1);
     const supply = isEdition ? Number(nft.edition_supply || 100) : 1;
+    let tokenId = nft.token_id || `catalog-${nft.id}`;
 
     setMinting(nft.id);
     setError("");
     setSuccess("");
     try {
       await requireConnectedAccount(walletAddress, wallet);
+
+      const candidateTokenId = tokenId;
+
+      // On permissionless contracts, ensure token_id is verified unused on-chain
+      // to permanently prevent "token_id must be unique and never reused" panics.
+      if (!isEdition && typeof generateUniqueTokenId === "function") {
+        try {
+          tokenId = await generateUniqueTokenId(candidateTokenId, wallet, NFT_CONTRACT_ID);
+        } catch {
+          tokenId = candidateTokenId;
+        }
+      }
       if (isEdition) {
         const result = await mintEditionOnChain({
           tokenId,
@@ -301,7 +314,7 @@ function CreateNFT() {
       }
     } catch (err) {
       const errMsg = err?.message || "";
-      if (/already exists|duplicate token/i.test(errMsg)) {
+      if (/already exists|duplicate token|unique and never reused/i.test(errMsg)) {
         try {
           const recovered = isEdition
             ? await mtToken(tokenId, wallet)
