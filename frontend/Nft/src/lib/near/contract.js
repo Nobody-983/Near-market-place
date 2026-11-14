@@ -273,9 +273,13 @@ export async function call(contractId, methodName, args = {}, attachedYocto = '0
     attachedDeposit: attachedYocto,
     attached_deposit: attachedYocto,
   };
+  const callbackUrl = typeof window !== 'undefined' && window.location?.href
+    ? window.location.href
+    : undefined;
   const result = await walletAccount.signAndSendTransaction({
     signerId: signerAccount,
     receiverId: contractId,
+    ...(callbackUrl ? { callbackUrl } : {}),
     actions: [
       {
         type: 'FunctionCall',
