@@ -13,17 +13,17 @@ const { SettlementSupabaseClient } = require('../services/settlement/supabase');
 const { rpcJson, transactionsInBlock } = require('../services/settlement/index');
 const { scanCatalogBlock } = require('../services/indexer/index');
 
-const RPC_URL = process.env.NEAR_RPC_URL || 'https://rpc.testnet.near.org';
+const RPC_URL = process.env.NEAR_RPC_URL || 'https://test.rpc.fastnear.com';
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://llqwiqhwrbfoxoqqgczy.supabase.co';
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 const config = {
   networkId: process.env.NEAR_NETWORK_ID || 'testnet',
   rpcUrl: RPC_URL,
-  marketplaceContractId: process.env.NEAR_MARKETPLACE_CONTRACT_ID || 'market.roundfrog-dev.testnet',
-  nftContractId: process.env.NEAR_NFT_CONTRACT_ID || 'nft.roundfrog-dev.testnet',
-  marketplaceCodeHash: process.env.NEAR_MARKETPLACE_CODE_HASH || 'Fp3ggF3WmSMQC7m9FU717jA8nB897sYW6bik7Ysqipw7',
-  nftCodeHash: process.env.NEAR_NFT_CODE_HASH || 'DRmwjtfeBzXW2XgXMumytEY5scsDzEtCGsbVNKjdEtW8',
+  marketplaceContractId: process.env.NEAR_MARKETPLACE_CONTRACT_ID || 'market-v2.roundfrog-dev.testnet',
+  nftContractId: process.env.NEAR_NFT_CONTRACT_ID || 'nft-v2.roundfrog-dev.testnet',
+  marketplaceCodeHash: process.env.NEAR_MARKETPLACE_CODE_HASH || '2vpgmXoZSpnPgcAkE6hR4dy9EnjogNLcW2vbkECADM2y',
+  nftCodeHash: process.env.NEAR_NFT_CODE_HASH || '7Xwtpb4JsXxmcdgCNEJdQVnAUQqYjWYFAvbtK7vXexh7',
 };
 
 config.rpc = (method, params) => rpcJson(config.rpcUrl, method, params);

@@ -179,6 +179,35 @@ test('returned errors, thrown failures and zero-row writes never report a succes
   }
 });
 
+test('nonexistent NFTs or unresolvable catalog strings cannot be liked and reject gracefully without invalid UUID writes', async () => {
+  const b = backend();
+  const f = await favorites(b);
+  f.render();
+  const view = await f.settle();
+
+  // Test 1: Unregistered string ID like catalog-roundfrog-genesis-02
+  b.state.respond = () => reply(null); // lookup in public.nfts yields nothing
+  const unresolvable = 'catalog-roundfrog-genesis-02';
+  const result = await view.toggleLike(unresolvable);
+  assert.equal(result, null);
+  const currentView = f.render();
+  assert.match(currentView.likeError, /not registered in the catalog/);
+  // Verify that NO insert to nft_likes was executed
+  const likeInserts = b.calls.filter((c) => c.method === 'POST' && c.url.pathname.includes('nft_likes'));
+  assert.equal(likeInserts.length, 0);
+
+  // Test 2: catalog-<UUID> correctly parses and inserts using canonical UUID
+  const validUuid = '44444444-4444-4444-8444-444444444444';
+  const catalogWithUuid = `catalog-${validUuid}`;
+  b.state.respond = () => reply({ nft_id: validUuid, user_id: alice.id });
+  const successResult = await view.toggleLike(catalogWithUuid);
+  assert.equal(successResult.liked, true);
+  assert.equal(successResult.resolvedId, validUuid);
+  assert.equal(f.render().likedNFTs.has(validUuid), true);
+  assert.equal(f.render().likedNFTs.has(catalogWithUuid), true);
+  f.unmount();
+});
+
 test('a connected but unverified wallet cannot load or write personal favorites', async () => {
   const b = backend();
   const f = await favorites(b, null, 'alice.testnet');

@@ -39,7 +39,8 @@ export async function getMarketplaceListings() {
         description,
         image_url,
         category,
-        creator_id
+        creator_id,
+        token_id
       ),
       profiles:seller_id (
         id,

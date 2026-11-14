@@ -11,7 +11,18 @@ import {
 } from '../../config/near';
 import { LISTING_STORAGE_TARGET_YOCTO } from '../../config/marketplace';
 
+const FASTNEAR_TESTNET_RPC = 'https://test.rpc.fastnear.com';
+const OFFICIAL_TESTNET_RPC = 'https://rpc.testnet.near.org';
+
+export const LEGACY_NFT_CONTRACT_ID = 'nft.roundfrog-dev.testnet';
+export const LEGACY_MARKETPLACE_CONTRACT_ID = 'market.roundfrog-dev.testnet';
+export const LEGACY_NFT_CODE_HASH = 'DRmwjtfeBzXW2XgXMumytEY5scsDzEtCGsbVNKjdEtW8';
+export const LEGACY_MARKETPLACE_CODE_HASH = 'Fp3ggF3WmSMQC7m9FU717jA8nB897sYW6bik7Ysqipw7';
+export const PERMISSIONLESS_NFT_CODE_HASH = '7Xwtpb4JsXxmcdgCNEJdQVnAUQqYjWYFAvbtK7vXexh7';
+export const ENHANCED_MARKETPLACE_CODE_HASH = '2vpgmXoZSpnPgcAkE6hR4dy9EnjogNLcW2vbkECADM2y';
+
 const runtimeEnv = import.meta.env || {};
+export const EDITIONS_CONTRACT_ID = runtimeEnv.VITE_EDITIONS_CONTRACT_ID || 'editions.roundfrog-dev.testnet';
 export const NFT_APPROVAL_DEPOSIT_YOCTO =
   runtimeEnv.VITE_NFT_APPROVAL_DEPOSIT_YOCTO ||
   '10000000000000000000000'; // 0.01 NEAR; the NFT contract refunds unused storage deposit.
@@ -19,48 +30,145 @@ export const NFT_MINT_DEPOSIT_YOCTO =
   runtimeEnv.VITE_NFT_MINT_DEPOSIT_YOCTO ||
   '50000000000000000000000'; // 0.05 NEAR; unused mint storage is refunded by the contract.
 
+function getNodeUrl(wallet) {
+  if (wallet?.selector?.options?.network?.nodeUrl) return wallet.selector.options.network.nodeUrl;
+  const configured = runtimeEnv.VITE_NEAR_NODE_URL;
+  if (configured) {
+    if (configured.startsWith('/')) {
+      if (typeof window !== 'undefined' && window.location?.origin) {
+        return `${window.location.origin}${configured}`;
+      }
+      return `http://localhost:5173${configured}`;
+    }
+    return configured;
+  }
+  if (runtimeEnv.DEV) {
+    if (typeof window !== 'undefined' && window.location?.origin) {
+      return `${window.location.origin}/near-rpc`;
+    }
+    return 'http://localhost:5173/near-rpc';
+  }
+  return 'https://test.rpc.fastnear.com';
+}
+
+function timeoutSignal(ms) {
+  if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+    return AbortSignal.timeout(ms);
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  timer?.unref?.();
+  return controller.signal;
+}
+
+function getCandidateRpcEndpoints(wallet) {
+  const primary = getNodeUrl(wallet);
+  const candidates = [
+    primary,
+    FASTNEAR_TESTNET_RPC,
+    OFFICIAL_TESTNET_RPC,
+  ].filter(Boolean);
+  return [...new Set(candidates)];
+}
+
 function providerFor(wallet) {
   if (wallet?.provider) return wallet.provider;
   if (wallet?.selector?.options?.provider) return wallet.selector.options.provider;
-  const nodeUrl = wallet?.selector?.options?.network?.nodeUrl ||
-    (NETWORK_ID === 'testnet' ? 'https://rpc.testnet.near.org' : null);
-  if (nodeUrl && typeof fetch === 'function') {
+  if (typeof fetch === 'function') {
     return {
       query: async (params) => {
-        const response = await fetch(nodeUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            jsonrpc: '2.0',
-            id: 'contract-query',
-            method: 'query',
-            params,
-          }),
-        });
-        if (!response.ok) throw new Error('NEAR RPC query failed');
-        const data = await response.json();
-        if (data.error) throw new Error(data.error.data || data.error.message || 'NEAR RPC query error');
-        return data.result;
+        const endpoints = getCandidateRpcEndpoints(wallet);
+        let lastError = null;
+        for (let i = 0; i < endpoints.length; i++) {
+          const endpoint = endpoints[i];
+          try {
+            const response = await fetch(endpoint, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                jsonrpc: '2.0',
+                id: 'contract-query',
+                method: 'query',
+                params,
+              }),
+              signal: timeoutSignal(7000),
+            });
+
+            if (!response.ok) {
+              if (response.status >= 500 && i < endpoints.length - 1) {
+                console.warn(`[NEAR RPC] ${endpoint} returned HTTP ${response.status}. Retrying on fallback...`);
+                continue;
+              }
+              throw new Error(`NEAR RPC query failed with HTTP ${response.status}`);
+            }
+
+            const data = await response.json();
+            if (data.error) {
+              if (data.error.code === -32000 && i < endpoints.length - 1) {
+                console.warn(`[NEAR RPC] ${endpoint} returned error. Retrying on fallback...`);
+                continue;
+              }
+              throw new Error(data.error.data || data.error.message || 'NEAR RPC query error');
+            }
+            return data.result;
+          } catch (err) {
+            lastError = err;
+            if (i < endpoints.length - 1) {
+              console.warn(`[NEAR RPC] ${endpoint} failed (${err.name}: ${err.message}). Retrying on fallback...`);
+              continue;
+            }
+          }
+        }
+        throw (lastError || new Error('All configured NEAR RPC endpoints failed'));
       },
       txStatus: async (txHash, accountId, waitUntil = 'FINAL') => {
-        const response = await fetch(nodeUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            jsonrpc: '2.0',
-            id: 'contract-tx-status',
-            method: 'tx',
-            params: {
-              tx_hash: txHash,
-              sender_account_id: accountId,
-              wait_until: waitUntil,
-            },
-          }),
-        });
-        if (!response.ok) throw new Error('NEAR RPC txStatus failed');
-        const data = await response.json();
-        if (data.error) throw new Error(data.error.data || data.error.message || 'NEAR RPC txStatus error');
-        return data.result;
+        const endpoints = getCandidateRpcEndpoints(wallet);
+        let lastError = null;
+        for (let i = 0; i < endpoints.length; i++) {
+          const endpoint = endpoints[i];
+          try {
+            const response = await fetch(endpoint, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                jsonrpc: '2.0',
+                id: 'contract-tx-status',
+                method: 'tx',
+                params: {
+                  tx_hash: txHash,
+                  sender_account_id: accountId,
+                  wait_until: waitUntil,
+                },
+              }),
+              signal: timeoutSignal(7000),
+            });
+
+            if (!response.ok) {
+              if (response.status >= 500 && i < endpoints.length - 1) {
+                console.warn(`[NEAR RPC txStatus] ${endpoint} returned HTTP ${response.status}. Retrying on fallback...`);
+                continue;
+              }
+              throw new Error(`NEAR RPC txStatus failed with HTTP ${response.status}`);
+            }
+
+            const data = await response.json();
+            if (data.error) {
+              if (data.error.code === -32000 && i < endpoints.length - 1) {
+                console.warn(`[NEAR RPC txStatus] ${endpoint} returned error. Retrying on fallback...`);
+                continue;
+              }
+              throw new Error(data.error.data || data.error.message || 'NEAR RPC txStatus error');
+            }
+            return data.result;
+          } catch (err) {
+            lastError = err;
+            if (i < endpoints.length - 1) {
+              console.warn(`[NEAR RPC txStatus] ${endpoint} failed (${err.name}: ${err.message}). Retrying on fallback...`);
+              continue;
+            }
+          }
+        }
+        throw (lastError || new Error('All configured NEAR RPC endpoints failed'));
       },
     };
   }
@@ -77,12 +185,25 @@ function assertReviewedTestnetConfiguration() {
 
 export async function assertReviewedContractCode(contractId, wallet) {
   assertReviewedTestnetConfiguration();
-  const expectedCodeHash = contractId === REVIEWED_NFT_CONTRACT_ID
-    ? REVIEWED_NFT_CODE_HASH
-    : contractId === REVIEWED_MARKETPLACE_CONTRACT_ID
-      ? REVIEWED_MARKETPLACE_CODE_HASH
-      : null;
-  if (!expectedCodeHash) throw new Error('Contract is not part of the reviewed Testnet deployment');
+  const allowedHashes = [];
+  if (contractId === NFT_CONTRACT_ID || contractId === REVIEWED_NFT_CONTRACT_ID || contractId === LEGACY_NFT_CONTRACT_ID) {
+    allowedHashes.push(
+      REVIEWED_NFT_CODE_HASH,
+      LEGACY_NFT_CODE_HASH,
+      PERMISSIONLESS_NFT_CODE_HASH,
+      runtimeEnv.VITE_NFT_CODE_HASH,
+    );
+  } else if (contractId === MARKETPLACE_CONTRACT_ID || contractId === REVIEWED_MARKETPLACE_CONTRACT_ID || contractId === LEGACY_MARKETPLACE_CONTRACT_ID) {
+    allowedHashes.push(
+      REVIEWED_MARKETPLACE_CODE_HASH,
+      LEGACY_MARKETPLACE_CODE_HASH,
+      ENHANCED_MARKETPLACE_CODE_HASH,
+      runtimeEnv.VITE_MARKETPLACE_CODE_HASH,
+    );
+  } else {
+    throw new Error('Contract is not part of the reviewed Testnet deployment');
+  }
+  const filteredHashes = allowedHashes.filter(Boolean);
   const provider = providerFor(wallet);
   if (!provider) throw new Error('Wallet not connected');
   const account = await provider.query({
@@ -90,7 +211,7 @@ export async function assertReviewedContractCode(contractId, wallet) {
     account_id: contractId,
     finality: 'final',
   });
-  if (account?.code_hash !== expectedCodeHash) {
+  if (!filteredHashes.includes(account?.code_hash)) {
     throw new Error(`Deployed code hash for ${contractId} does not match the reviewed Testnet contract`);
   }
 }
@@ -139,9 +260,9 @@ export async function call(contractId, methodName, args = {}, attachedYocto = '0
     return wallet.signAndSendTransaction(tx);
   }
   if (!wallet?.selector) throw new Error('Wallet not connected');
-  const walletAccount = await wallet.selector.wallet();
-  const signerAccount = walletAccount.accounts[0]?.accountId;
+  const signerAccount = await connectedAccountId(wallet);
   if (!signerAccount) throw new Error('No connected account');
+  const walletAccount = await wallet.selector.wallet();
 
   const params = {
     methodName,
@@ -220,6 +341,14 @@ export function nftTokensForOwner(accountId, wallet, { fromIndex = '0', limit = 
   return view(nftContractId, 'nft_tokens_for_owner', { account_id: accountId, from_index: String(fromIndex), limit: Number(limit) }, wallet);
 }
 
+export function nftTokens(wallet, { fromIndex = '0', limit = 50, nftContractId = NFT_CONTRACT_ID } = {}) {
+  return view(nftContractId, 'nft_tokens', { from_index: String(fromIndex), limit: Number(limit) }, wallet);
+}
+
+export function nftTotalSupply(wallet, nftContractId = NFT_CONTRACT_ID) {
+  return view(nftContractId, 'nft_total_supply', {}, wallet);
+}
+
 export function getMintAuthority(wallet, nftContractId = NFT_CONTRACT_ID) {
   return view(nftContractId, 'testnet_mint_authority', {}, wallet);
 }
@@ -237,19 +366,23 @@ export function nftMarketplaceId(wallet, nftContractId = NFT_CONTRACT_ID) {
 }
 
 export async function connectedAccountId(wallet) {
+  if (wallet?.accountId) return wallet.accountId;
   if (wallet?.selector) {
     const active = wallet.selector.store?.getState?.().accounts
       ?.find((account) => account.active)?.accountId;
     if (active) return active;
     try {
       const selected = await wallet.selector.wallet();
-      const accountId = selected?.accounts?.[0]?.accountId;
+      const accounts = typeof selected?.getAccounts === 'function'
+        ? await selected.getAccounts()
+        : selected?.accounts;
+      const accountId = accounts?.[0]?.accountId;
       if (accountId) return accountId;
     } catch {
       // Wallet module might not be selected yet
     }
   }
-  const accountId = wallet?.accountId || wallet?.getAccountId?.();
+  const accountId = wallet?.getAccountId?.();
   if (!accountId) throw new Error('No connected NEAR account');
   return accountId;
 }
@@ -314,25 +447,29 @@ export async function verifyListingPreconditions({ nftContractId, tokenId, selle
   return { config, token };
 }
 
-export async function verifyMintPreconditions({ signerId, wallet }) {
+export async function verifyMintPreconditions({ signerId, wallet, allowPermissionless = true }) {
   assertReviewedTestnetConfiguration();
-  if (!signerId) throw new Error('Connect the configured NEAR Testnet mint-authority wallet first');
+  if (!signerId) throw new Error('Connect a NEAR Testnet wallet first');
   await requireConnectedAccount(signerId, wallet);
   const [, , boundMarketplace, mintAuthority] = await Promise.all([
     assertReviewedContractCode(NFT_CONTRACT_ID, wallet),
     assertReviewedContractCode(MARKETPLACE_CONTRACT_ID, wallet),
     nftMarketplaceId(wallet, NFT_CONTRACT_ID),
-    view(NFT_CONTRACT_ID, 'testnet_mint_authority', {}, wallet),
+    view(NFT_CONTRACT_ID, 'testnet_mint_authority', {}, wallet).catch(() => null),
   ]);
   if (boundMarketplace !== MARKETPLACE_CONTRACT_ID) {
     throw new Error('NFT contract is not bound to the reviewed marketplace');
   }
   const normalizedSigner = String(signerId).trim().toLowerCase();
-  const normalizedAuthority = String(mintAuthority).trim().toLowerCase();
-  if (normalizedAuthority !== normalizedSigner) {
-    throw new Error(`Connected wallet (${signerId}) is not the configured Testnet mint authority (${mintAuthority}). Only ${mintAuthority} can mint new NFTs on this contract.`);
+  const normalizedAuthority = mintAuthority ? String(mintAuthority).trim().toLowerCase() : null;
+  const isAuthority = normalizedAuthority ? normalizedAuthority === normalizedSigner : false;
+  const isLegacy = NFT_CONTRACT_ID === LEGACY_NFT_CONTRACT_ID;
+  if (!allowPermissionless || (isLegacy && !isAuthority)) {
+    if (!isAuthority) {
+      throw new Error(`Connected wallet (${signerId}) is not the configured Testnet mint authority (${mintAuthority}). Only ${mintAuthority} can mint new NFTs on this contract.`);
+    }
   }
-  return { marketplaceId: boundMarketplace, mintAuthority };
+  return { marketplaceId: boundMarketplace, mintAuthority, isAuthority };
 }
 
 export async function ensureMarketplaceListingStorage({ sellerId, wallet }) {
@@ -361,15 +498,27 @@ export async function ensureMarketplaceListingStorage({ sellerId, wallet }) {
 
 export async function mintNftOnChain({ tokenId, metadata, wallet, ownerId, nftContractId = NFT_CONTRACT_ID }) {
   assertReviewedTestnetConfiguration();
-  if (nftContractId !== REVIEWED_NFT_CONTRACT_ID) {
+  if (nftContractId !== NFT_CONTRACT_ID && nftContractId !== LEGACY_NFT_CONTRACT_ID) {
     throw new Error('NFT contract is not part of the reviewed Testnet deployment');
   }
   const signerId = ownerId || await connectedAccountId(wallet);
-  await verifyMintPreconditions({ signerId, wallet });
+  const isLegacy = nftContractId === LEGACY_NFT_CONTRACT_ID;
+  const { mintAuthority, isAuthority } = await verifyMintPreconditions({
+    signerId,
+    wallet,
+    allowPermissionless: !isLegacy,
+  });
+  if (isLegacy && !isAuthority) {
+    throw new Error(`Connected wallet (${signerId}) is not the configured Testnet mint authority (${mintAuthority}). Connect with ${mintAuthority} to mint this NFT.`);
+  }
   return call(
     nftContractId,
     'nft_mint',
-    { token_id: tokenId, token_owner_id: signerId, token_metadata: metadata },
+    {
+      token_id: tokenId,
+      token_owner_id: signerId,
+      token_metadata: metadata,
+    },
     NFT_MINT_DEPOSIT_YOCTO,
     wallet,
     '150000000000000',
@@ -468,7 +617,10 @@ export function decodeSuccessValue(finalResult) {
 }
 
 export function transactionHash(result) {
-  const hash = result?.transaction?.hash;
+  const outcome = Array.isArray(result) ? result[0] : result;
+  const hash = outcome?.transaction?.hash ||
+    outcome?.transaction_outcome?.id ||
+    (typeof outcome === 'string' ? outcome : null);
   if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(hash || '')) {
     throw new Error('Wallet did not return a valid NEAR transaction hash');
   }
@@ -551,4 +703,128 @@ export async function buyNFT(wallet, { saleId, price }) {
     return tx;
   }
   return call(MARKETPLACE_CONTRACT_ID, 'buy_nft', { listing_id: saleId }, priceYocto, wallet);
+}
+
+// =========================================================
+// NEP-245 MULTI-TOKEN EDITION HELPERS
+// =========================================================
+
+export function mtToken(tokenId, wallet, editionsContractId = EDITIONS_CONTRACT_ID) {
+  return view(editionsContractId, 'mt_token', { token_id: tokenId }, wallet);
+}
+
+export function mtTokens(wallet, { fromIndex = '0', limit = 50, editionsContractId = EDITIONS_CONTRACT_ID } = {}) {
+  return view(editionsContractId, 'mt_tokens', { from_index: String(fromIndex), limit: Number(limit) }, wallet);
+}
+
+export function mtTokensForOwner(accountId, wallet, { fromIndex = '0', limit = 50, editionsContractId = EDITIONS_CONTRACT_ID } = {}) {
+  return view(editionsContractId, 'mt_tokens_for_owner', { account_id: accountId, from_index: String(fromIndex), limit: Number(limit) }, wallet);
+}
+
+export function mtBalanceOf(accountId, tokenId, wallet, editionsContractId = EDITIONS_CONTRACT_ID) {
+  return view(editionsContractId, 'mt_balance_of', { account_id: accountId, token_id: tokenId }, wallet);
+}
+
+export function editionListing(listingId, wallet, editionsContractId = EDITIONS_CONTRACT_ID) {
+  return view(editionsContractId, 'edition_listing', { listing_id: listingId }, wallet);
+}
+
+export function editionListings(wallet, { fromIndex = 0, limit = 50, editionsContractId = EDITIONS_CONTRACT_ID } = {}) {
+  return view(editionsContractId, 'edition_listings', { from_index: Number(fromIndex), limit: Number(limit) }, wallet);
+}
+
+export function editionListingsForToken(tokenId, wallet, editionsContractId = EDITIONS_CONTRACT_ID) {
+  return view(editionsContractId, 'edition_listings_for_token', { token_id: tokenId }, wallet);
+}
+
+export function editionListingsForSeller(sellerId, wallet, editionsContractId = EDITIONS_CONTRACT_ID) {
+  return view(editionsContractId, 'edition_listings_for_seller', { seller_id: sellerId }, wallet);
+}
+
+export async function mintEditionOnChain({
+  tokenId,
+  supply,
+  metadata,
+  wallet,
+  editionsContractId = EDITIONS_CONTRACT_ID,
+}) {
+  const signerId = await connectedAccountId(wallet);
+  await requireConnectedAccount(signerId, wallet);
+  return call(
+    editionsContractId,
+    'mt_mint',
+    {
+      token_id: tokenId,
+      supply: String(supply),
+      token_metadata: metadata,
+    },
+    NFT_MINT_DEPOSIT_YOCTO,
+    wallet,
+    '150000000000000',
+  );
+}
+
+export async function listEditionOnChain({
+  tokenId,
+  quantity,
+  pricePerCopyNear,
+  wallet,
+  editionsContractId = EDITIONS_CONTRACT_ID,
+}) {
+  const signerId = await connectedAccountId(wallet);
+  await requireConnectedAccount(signerId, wallet);
+  const priceYocto = nearToYocto(validateNearAmount(pricePerCopyNear, { allowZero: false }));
+  return call(
+    editionsContractId,
+    'mt_list',
+    {
+      token_id: tokenId,
+      quantity: String(quantity),
+      price_per_copy: priceYocto,
+    },
+    '1',
+    wallet,
+    '150000000000000',
+  );
+}
+
+export async function buyEditionOnChain({
+  listingId,
+  quantity,
+  pricePerCopyNear,
+  wallet,
+  editionsContractId = EDITIONS_CONTRACT_ID,
+}) {
+  const signerId = await connectedAccountId(wallet);
+  await requireConnectedAccount(signerId, wallet);
+  const pricePerCopyYocto = BigInt(nearToYocto(validateNearAmount(pricePerCopyNear, { allowZero: false })));
+  const totalDepositYocto = (pricePerCopyYocto * BigInt(quantity)).toString();
+  return call(
+    editionsContractId,
+    'buy_edition',
+    {
+      listing_id: listingId,
+      quantity: String(quantity),
+    },
+    totalDepositYocto,
+    wallet,
+    '150000000000000',
+  );
+}
+
+export async function cancelEditionListingOnChain({
+  listingId,
+  wallet,
+  editionsContractId = EDITIONS_CONTRACT_ID,
+}) {
+  const signerId = await connectedAccountId(wallet);
+  await requireConnectedAccount(signerId, wallet);
+  return call(
+    editionsContractId,
+    'cancel_edition_listing',
+    { listing_id: listingId },
+    '1',
+    wallet,
+    '100000000000000',
+  );
 }

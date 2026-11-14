@@ -18,6 +18,7 @@ import {
   MARKETPLACE_CONTRACT_ID,
   NFT_CONTRACT_ID,
   NETWORK_ID,
+  EDITIONS_CONTRACT_ID,
 } from "../config/near";
 import {
   PURCHASES_ENABLED,
@@ -29,16 +30,22 @@ import {
 } from "../config/marketplace";
 import {
   buyNftOnChain,
+  buyEditionOnChain,
   assertFinalSuccess,
   cancelListingOnChain,
+  cancelEditionListingOnChain,
   ensureMarketplaceListingStorage,
-  getMintAuthority,
   listingIdFromFinalResult,
   listNftOnChain,
+  listEditionOnChain,
   marketplaceListing,
   marketplaceListingMetadata,
   marketplaceListings,
   mintNftOnChain,
+  mintEditionOnChain,
+  mtToken,
+  mtBalanceOf,
+  editionListingsForToken,
   nftToken,
   requireConnectedAccount,
   transactionHash,
@@ -51,7 +58,7 @@ import { LISTING_SELECT_FIELDS, waitForIndexedListing } from "../services/market
 import { NFT_SELECT_FIELDS } from "../services/nftService";
 import { PREVIEW_NFTS, PREVIEW_LISTINGS } from "../lib/previewData";
 import { PREVIEW_DATA_ENABLED } from "../config/preview";
-import { useNFTLikes } from "../hooks/useNFTLikes";
+import { useNFTLikes, parseUUID, extractTrustedTokenIdentifier, resolveNFTId } from "../hooks/useNFTLikes";
 
 function NFTDetails() {
   const { id } = useParams();
@@ -68,26 +75,15 @@ function NFTDetails() {
   const [minting, setMinting] = useState(false);
   const [showListingModal, setShowListingModal] = useState(false);
   const [listingPrice, setListingPrice] = useState("");
+  const [buyQuantity, setBuyQuantity] = useState(1);
+  const [listingQuantity, setListingQuantity] = useState("1");
+  const [userBalance, setUserBalance] = useState("0");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [likes, setLikes] = useState(0);
-  const [mintAuthority, setMintAuthority] = useState(null);
-  const { likedNFTs, loadingLikes, likingNFT, likeError, toggleLike } = useNFTLikes(id);
-  const liked = likedNFTs.has(id);
-
-  useEffect(() => {
-    let mounted = true;
-    getMintAuthority()
-      .then((auth) => {
-        if (mounted && auth) setMintAuthority(auth);
-      })
-      .catch((e) => {
-        void e;
-      });
-    return () => {
-      mounted = false;
-    };
-  }, []);
+  const canonicalUuid = parseUUID(id);
+  const { likedNFTs, loadingLikes, likingNFT, likeError, toggleLike } = useNFTLikes(canonicalUuid || id);
+  const liked = likedNFTs.has(id) || (canonicalUuid && likedNFTs.has(canonicalUuid)) || (nft?.id && likedNFTs.has(nft.id)) || (nft?.token_id && likedNFTs.has(nft.token_id));
 
   const fetchNFTDetails = useCallback(async () => {
     try {
@@ -107,10 +103,10 @@ function NFTDetails() {
         return;
       }
 
-      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id || "");
+      const resolvedRouteUuid = parseUUID(id);
       let nftData = null;
 
-      if (isUuid) {
+      if (resolvedRouteUuid) {
         const { data, error: nftError } = await supabase
           .from("nfts")
           .select(`
@@ -123,27 +119,7 @@ function NFTDetails() {
               wallet_address
             )
           `)
-          .eq("id", id)
-          .maybeSingle();
-
-        if (nftError) {
-          throw nftError;
-        }
-        nftData = data;
-      } else {
-        const { data, error: nftError } = await supabase
-          .from("nfts")
-          .select(`
-            ${NFT_SELECT_FIELDS},
-            profiles:creator_id (
-              id,
-              username,
-              display_name,
-              avatar_url,
-              wallet_address
-            )
-          `)
-          .eq("token_id", id)
+          .eq("id", resolvedRouteUuid)
           .maybeSingle();
 
         if (nftError) {
@@ -152,14 +128,87 @@ function NFTDetails() {
         nftData = data;
       }
 
-      const tokenId = nftData?.token_id || (!isUuid ? id : null);
+      if (!nftData) {
+        const trustedToken = extractTrustedTokenIdentifier(id) || id;
+        const cleanToken = trustedToken.startsWith("catalog-") ? trustedToken.slice(8) : trustedToken;
+        const filters = [`token_id.eq.${trustedToken}`, `token_id.eq.catalog-${cleanToken}`, `token_id.eq.${cleanToken}`];
+
+        const { data, error: nftError } = await supabase
+          .from("nfts")
+          .select(`
+            ${NFT_SELECT_FIELDS},
+            profiles:creator_id (
+              id,
+              username,
+              display_name,
+              avatar_url,
+              wallet_address
+            )
+          `)
+          .or(filters.join(","))
+          .maybeSingle();
+
+        if (nftError) {
+          throw nftError;
+        }
+        nftData = data;
+      }
+
+      if (!nftData) {
+        const fallbackUuid = await resolveNFTId(id);
+        if (fallbackUuid) {
+          const { data: fallbackData } = await supabase
+            .from("nfts")
+            .select(`
+              ${NFT_SELECT_FIELDS},
+              profiles:creator_id (
+                id,
+                username,
+                display_name,
+                avatar_url,
+                wallet_address
+              )
+            `)
+            .eq("id", fallbackUuid)
+            .maybeSingle();
+          if (fallbackData) {
+            nftData = fallbackData;
+          }
+        }
+      }
+
+      const targetUuid = resolvedRouteUuid || nftData?.id;
+      const trustedCandidate = extractTrustedTokenIdentifier(id);
+      const tokenId = nftData?.token_id || (trustedCandidate && !parseUUID(trustedCandidate) ? trustedCandidate : null) || (targetUuid ? `catalog-${targetUuid}` : id);
       let onChainToken = null;
+      let isEditionToken = false;
+      const wallet = selector ? { selector, accountId: walletAddress } : undefined;
+
       if (tokenId) {
         try {
-          const wallet = selector ? { selector, accountId: walletAddress } : undefined;
           onChainToken = await nftToken(tokenId, wallet);
         } catch (chainErr) {
-          console.warn("Could not query on-chain token:", chainErr);
+          console.warn("Could not query on-chain NFT token:", chainErr);
+        }
+        if (!onChainToken) {
+          try {
+            const edToken = await mtToken(tokenId, wallet);
+            if (edToken) {
+              onChainToken = edToken;
+              isEditionToken = true;
+            }
+          } catch (edErr) {
+            console.warn("Could not query on-chain edition token:", edErr);
+          }
+        }
+      }
+
+      if (walletAddress && isEditionToken && tokenId) {
+        try {
+          const bal = await mtBalanceOf(walletAddress, tokenId, wallet);
+          setUserBalance(bal ? String(bal) : "0");
+        } catch (balErr) {
+          console.warn("Could not fetch user edition balance:", balErr);
         }
       }
 
@@ -170,8 +219,12 @@ function NFTDetails() {
       if (nftData) {
         setNft({
           ...nftData,
+          token_id: onChainToken?.token_id || nftData.token_id || (targetUuid ? `catalog-${targetUuid}` : null),
+          nft_contract_id: onChainToken ? (isEditionToken ? EDITIONS_CONTRACT_ID : NFT_CONTRACT_ID) : (nftData.nft_contract_id || null),
           price: validateNearAmount(nftData.price),
           on_chain_owner: onChainToken?.owner_id || null,
+          is_edition: isEditionToken,
+          supply: onChainToken?.supply ? String(onChainToken.supply) : "1",
         });
       } else if (onChainToken) {
         let extra = {};
@@ -183,7 +236,7 @@ function NFTDetails() {
         setNft({
           id: onChainToken.token_id,
           token_id: onChainToken.token_id,
-          nft_contract_id: NFT_CONTRACT_ID,
+          nft_contract_id: isEditionToken ? EDITIONS_CONTRACT_ID : NFT_CONTRACT_ID,
           name: onChainToken.metadata?.title || onChainToken.token_id,
           description: onChainToken.metadata?.description || "",
           image_url: onChainToken.metadata?.media || "/placeholder.png",
@@ -191,11 +244,13 @@ function NFTDetails() {
           price: "0",
           currency: "NEAR",
           on_chain_owner: onChainToken.owner_id,
+          is_edition: isEditionToken,
+          supply: onChainToken?.supply ? String(onChainToken.supply) : "1",
         });
       }
 
       let ownershipData = null;
-      if (isUuid) {
+      if (targetUuid) {
         const { data } = await supabase
           .from("nft_ownership")
           .select(`
@@ -209,7 +264,7 @@ function NFTDetails() {
               wallet_address
             )
           `)
-          .eq("nft_id", id)
+          .eq("nft_id", targetUuid)
           .maybeSingle();
 
         ownershipData = data;
@@ -217,7 +272,7 @@ function NFTDetails() {
       setOwnership(ownershipData || null);
 
       let listingData = null;
-      if (isUuid) {
+      if (targetUuid) {
         const { data } = await supabase
           .from("marketplace_listings")
           .select(`
@@ -230,7 +285,7 @@ function NFTDetails() {
               wallet_address
             )
           `)
-          .eq("nft_id", id)
+          .eq("nft_id", targetUuid)
           .eq("status", "active")
           .maybeSingle();
 
@@ -239,29 +294,51 @@ function NFTDetails() {
 
       if (!listingData && tokenId) {
         try {
-          const wallet = selector ? { selector, accountId: walletAddress } : undefined;
-          const chainListings = await marketplaceListings(wallet);
-          const activeChainListing = (chainListings || []).find(
-            (l) => l.active && l.token_id === tokenId
-          );
-          if (activeChainListing) {
-            listingData = {
-              id: activeChainListing.listing_id,
-              contract_sale_id: activeChainListing.listing_id,
-              contract_listing_id: activeChainListing.listing_id,
-              token_id: activeChainListing.token_id,
-              nft_id: nftData?.id || activeChainListing.token_id,
-              seller_id: activeChainListing.seller,
-              seller: activeChainListing.seller,
-              price: yoctoToNear(activeChainListing.price),
-              currency: "NEAR",
-              status: "active",
-              network_id: NETWORK_ID,
-              marketplace_contract_id: MARKETPLACE_CONTRACT_ID,
-            };
+          if (isEditionToken) {
+            const edListings = await editionListingsForToken(tokenId, wallet);
+            const activeEd = (edListings || []).find((l) => l.active);
+            if (activeEd) {
+              listingData = {
+                id: activeEd.listing_id,
+                contract_sale_id: activeEd.listing_id,
+                contract_listing_id: activeEd.listing_id,
+                token_id: activeEd.token_id,
+                nft_id: nftData?.id || activeEd.token_id,
+                seller_id: activeEd.seller,
+                seller: activeEd.seller,
+                price: yoctoToNear(activeEd.price_per_copy),
+                currency: "NEAR",
+                status: "active",
+                network_id: NETWORK_ID,
+                marketplace_contract_id: EDITIONS_CONTRACT_ID,
+                is_edition: true,
+                available_quantity: Number(activeEd.available_quantity),
+              };
+            }
+          } else {
+            const chainListings = await marketplaceListings(wallet);
+            const activeChainListing = (chainListings || []).find(
+              (l) => l.active && l.token_id === tokenId
+            );
+            if (activeChainListing) {
+              listingData = {
+                id: activeChainListing.listing_id,
+                contract_sale_id: activeChainListing.listing_id,
+                contract_listing_id: activeChainListing.listing_id,
+                token_id: activeChainListing.token_id,
+                nft_id: nftData?.id || activeChainListing.token_id,
+                seller_id: activeChainListing.seller,
+                seller: activeChainListing.seller,
+                price: yoctoToNear(activeChainListing.price),
+                currency: "NEAR",
+                status: "active",
+                network_id: NETWORK_ID,
+                marketplace_contract_id: MARKETPLACE_CONTRACT_ID,
+              };
+            }
           }
-        } catch (chainListingErr) {
-          console.warn("Could not query on-chain listing:", chainListingErr);
+        } catch (chainErr) {
+          console.warn("Could not query on-chain listing:", chainErr);
         }
       }
 
@@ -270,11 +347,11 @@ function NFTDetails() {
       } : null);
 
       // Likes
-      if (isUuid) {
+      if (targetUuid) {
         const { count: likeCount, error: likesError } = await supabase
           .from("nft_likes")
           .select("*", { count: "exact", head: true })
-          .eq("nft_id", id);
+          .eq("nft_id", targetUuid);
         if (likesError) throw likesError;
         setLikes(likeCount || 0);
       }
@@ -338,15 +415,39 @@ function NFTDetails() {
 
     try {
       const price = validateNearAmount(listing.price, { allowZero: false });
+      if (!listing.is_edition && !listing.contract_sale_id?.startsWith("edition|") && !MARKETPLACE_CONTRACT_ID) {
+        throw new Error(PURCHASE_UNAVAILABLE_MESSAGE);
+      }
+      if (!selector) throw new Error("Wallet selector not initialized");
+      const wallet = { selector, accountId: walletAddress };
+      if (typeof requireConnectedAccount === "function") {
+        await requireConnectedAccount(walletAddress, wallet);
+      }
+
+      if (listing.is_edition || (typeof EDITIONS_CONTRACT_ID !== "undefined" && listing.marketplace_contract_id === EDITIONS_CONTRACT_ID) || listing.contract_sale_id?.startsWith("edition|")) {
+        const qty = Number(buyQuantity || 1);
+        const result = await buyEditionOnChain({
+          listingId: listing.contract_sale_id || listing.id,
+          quantity: qty,
+          pricePerCopyNear: price,
+          wallet,
+        });
+        const txHash = transactionHash(result);
+        const finalResult = await waitForFinal(txHash, walletAddress, wallet);
+        assertFinalSuccess(finalResult, "Edition purchase");
+        await requireConnectedAccount(walletAddress, wallet);
+        setSuccess(`Successfully bought ${qty} ${qty === 1 ? 'copy' : 'copies'} on NEAR!`);
+        if (walletAddress) refreshBalance(walletAddress);
+        setTimeout(() => fetchNFTDetails(), 2500);
+        return;
+      }
+
       if (!MARKETPLACE_CONTRACT_ID) throw new Error(PURCHASE_UNAVAILABLE_MESSAGE);
       if (!listing.contract_sale_id) throw new Error("Listing is missing its verified on-chain sale ID");
       if (listing.network_id !== NETWORK_ID) throw new Error("Listing belongs to a different NEAR network");
       if (listing.marketplace_contract_id !== MARKETPLACE_CONTRACT_ID) {
         throw new Error("Listing belongs to a different marketplace contract");
       }
-      if (!selector) throw new Error("Wallet selector not initialized");
-      const wallet = { selector, accountId: walletAddress };
-      await requireConnectedAccount(walletAddress, wallet);
       const [chainListing, chainMeta] = await Promise.all([
         marketplaceListing(listing.contract_sale_id, wallet),
         marketplaceListingMetadata(listing.contract_sale_id, wallet),
@@ -444,6 +545,25 @@ function NFTDetails() {
       }
       const wallet = { selector, accountId: walletAddress };
       await requireConnectedAccount(walletAddress, wallet);
+
+      if (nft?.is_edition || (typeof EDITIONS_CONTRACT_ID !== "undefined" && nft?.nft_contract_id === EDITIONS_CONTRACT_ID)) {
+        const qty = Number(listingQuantity || 1);
+        const result = await listEditionOnChain({
+          tokenId,
+          quantity: qty,
+          pricePerCopyNear: price,
+          wallet,
+        });
+        const txHash = transactionHash(result);
+        const finalResult = await waitForFinal(txHash, walletAddress, wallet);
+        assertFinalSuccess(finalResult, "Edition listing");
+        await requireConnectedAccount(walletAddress, wallet);
+        setSuccess(`"${nft.name}" (${qty} copies) is listed for sale on NEAR at ${price} NEAR each.`);
+        setShowListingModal(false);
+        setTimeout(() => fetchNFTDetails(), 2500);
+        return;
+      }
+
       await verifyListingPreconditions({
         nftContractId,
         tokenId,
@@ -541,6 +661,21 @@ function NFTDetails() {
 
       const wallet = { selector, accountId: walletAddress };
       await requireConnectedAccount(walletAddress, wallet);
+
+      if (listing.is_edition || saleId?.startsWith("edition|")) {
+        const result = await cancelEditionListingOnChain({
+          listingId: saleId,
+          wallet,
+        });
+        const txHash = transactionHash(result);
+        const finalResult = await waitForFinal(txHash, walletAddress, wallet);
+        assertFinalSuccess(finalResult, "Edition listing cancellation");
+        setSuccess(`"${nft?.name || "Edition"}" listing was cancelled on NEAR.`);
+        setListing(null);
+        setTimeout(() => fetchNFTDetails(), 2500);
+        return;
+      }
+
       const before = await marketplaceListing(saleId, wallet);
       if (!before?.active || before.seller.toLowerCase() !== walletAddress.toLowerCase()) {
         throw new Error("The on-chain listing is no longer active for this seller.");
@@ -584,11 +719,7 @@ function NFTDetails() {
       return;
     }
     if (!isConnected || !selector || !walletAddress) {
-      setError("Connect the configured NEAR Testnet mint-authority wallet first.");
-      return;
-    }
-    if (mintAuthority && walletAddress.trim().toLowerCase() !== mintAuthority.trim().toLowerCase()) {
-      setError(`Connected wallet (${walletAddress}) is not the configured Testnet mint authority (${mintAuthority}). Only ${mintAuthority} can mint new NFTs on this contract.`);
+      setError("Connect a NEAR Testnet wallet first.");
       return;
     }
     if (!nft?.id || nft.token_id || nft.nft_contract_id || minting) return;
@@ -600,34 +731,54 @@ function NFTDetails() {
     setSuccess("");
     try {
       await requireConnectedAccount(walletAddress, wallet);
-      const result = await mintNftOnChain({
-        tokenId,
-        ownerId: walletAddress,
-        wallet,
-        metadata: {
-          title: nft.name,
-          description: nft.description || null,
-          media: nft.image_url,
-          media_hash: null,
-          copies: "1",
-          issued_at: null,
-          expires_at: null,
-          starts_at: null,
-          updated_at: null,
-          extra: JSON.stringify({ catalog_id: nft.id, category: nft.category }),
-          reference: null,
-          reference_hash: null,
-        },
-      });
-      const txHash = transactionHash(result);
-      const finalResult = await waitForFinal(txHash, walletAddress, wallet);
-      assertFinalSuccess(finalResult, "NFT mint");
-      await requireConnectedAccount(walletAddress, wallet);
-      const token = await nftToken(tokenId, wallet);
-      if (!token || token.owner_id !== walletAddress || token.token_id !== tokenId) {
-        throw new Error("The finalized mint could not be verified against NFT contract state.");
+      if (nft.is_edition) {
+        const supply = Number(nft.supply || 100);
+        const result = await mintEditionOnChain({
+          tokenId,
+          supply,
+          wallet,
+          metadata: {
+            title: nft.name,
+            description: nft.description || null,
+            media: nft.image_url,
+            media_hash: null,
+            copies: String(supply),
+          },
+        });
+        const txHash = transactionHash(result);
+        const finalResult = await waitForFinal(txHash, walletAddress, wallet);
+        assertFinalSuccess(finalResult, "Edition mint");
+        setSuccess(`Edition “${nft.name}” (${supply} copies) was minted on NEAR.`);
+      } else {
+        const result = await mintNftOnChain({
+          tokenId,
+          ownerId: walletAddress,
+          wallet,
+          metadata: {
+            title: nft.name,
+            description: nft.description || null,
+            media: nft.image_url,
+            media_hash: null,
+            copies: "1",
+            issued_at: null,
+            expires_at: null,
+            starts_at: null,
+            updated_at: null,
+            extra: JSON.stringify({ catalog_id: nft.id, category: nft.category }),
+            reference: null,
+            reference_hash: null,
+          },
+        });
+        const txHash = transactionHash(result);
+        const finalResult = await waitForFinal(txHash, walletAddress, wallet);
+        assertFinalSuccess(finalResult, "NFT mint");
+        await requireConnectedAccount(walletAddress, wallet);
+        const token = await nftToken(tokenId, wallet);
+        if (!token || token.owner_id !== walletAddress || token.token_id !== tokenId) {
+          throw new Error("The finalized mint could not be verified against NFT contract state.");
+        }
+        setSuccess(`“${nft.name}” was minted on NEAR. The trusted indexer is binding it to your catalog record.`);
       }
-      setSuccess(`“${nft.name}” was minted on NEAR. The trusted indexer is binding it to your catalog record.`);
       setTimeout(() => { void fetchNFTDetails(); }, 3000);
     } catch (err) {
       setError(err?.message || "Unable to mint this NFT on NEAR Testnet.");
@@ -639,7 +790,8 @@ function NFTDetails() {
   const handleLike = async () => {
     setError("");
     setSuccess("");
-    const result = await toggleLike(id);
+    const targetId = (typeof nft !== "undefined" && nft?.id) ? nft.id : ((typeof canonicalUuid !== "undefined" && canonicalUuid) ? canonicalUuid : id);
+    const result = await toggleLike(targetId);
     if (result) {
       setLikes((previous) => Math.max(0, previous + result.change));
     }
@@ -692,13 +844,22 @@ function NFTDetails() {
 
         <div className="space-y-6">
           <div>
-            <div className="flex items-center gap-2 mb-2">
+            <div className="flex items-center gap-2 mb-2 flex-wrap">
               <span className="px-2 py-1 bg-[#00EC97]/10 text-[#00EC97] rounded-lg text-xs">
                 {nft.category || "NFT"}
               </span>
+              {nft.is_edition ? (
+                <span className="px-2 py-1 bg-purple-500/10 text-purple-400 rounded-lg text-xs font-medium">
+                  Limited Edition ({nft.supply || "100"} Total Supply)
+                </span>
+              ) : (
+                <span className="px-2 py-1 bg-blue-500/10 text-blue-400 rounded-lg text-xs font-medium">
+                  1 of 1 Unique NFT
+                </span>
+              )}
               {listing && listing.status === "active" && (
                 <span className="px-2 py-1 bg-green-500/10 text-green-400 rounded-lg text-xs">
-                  For Sale
+                  {listing.is_edition ? `For Sale (${listing.available_quantity} available)` : "For Sale"}
                 </span>
               )}
             </div>
@@ -716,13 +877,55 @@ function NFTDetails() {
             </div>
           </div>
 
+          {nft.is_edition && Number(userBalance) > 0 && (
+            <div className="p-3 bg-purple-500/10 border border-purple-500/20 rounded-xl text-sm text-purple-300">
+              You own {userBalance} {Number(userBalance) === 1 ? "copy" : "copies"} of this edition in your connected wallet.
+            </div>
+          )}
+
           {listing && listing.status === "active" && (
             <div className="p-6 rounded-2xl border border-zinc-800 bg-gradient-to-br from-zinc-900 to-black">
-              <p className="text-sm text-gray-400 mb-2">Current Price</p>
+              <p className="text-sm text-gray-400 mb-2">
+                {listing.is_edition ? "Price Per Copy" : "Current Price"}
+              </p>
               <div className="flex items-baseline gap-2 mb-6">
                 <p className="text-3xl font-bold">{listing.price}</p>
                 <p className="text-xl text-gray-400">{listing.currency || "NEAR"}</p>
               </div>
+
+              {listing.is_edition && !isOwner && (
+                <div className="mb-6 rounded-xl border border-white/10 bg-white/[0.02] p-4 space-y-3">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-gray-400">Select Quantity to Buy:</span>
+                    <span className="text-purple-400 font-medium">{listing.available_quantity} copies available</span>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <button
+                      type="button"
+                      onClick={() => setBuyQuantity((q) => Math.max(1, q - 1))}
+                      disabled={buyQuantity <= 1 || buying}
+                      className="w-10 h-10 rounded-xl bg-zinc-800 border border-zinc-700 flex items-center justify-center font-bold text-lg hover:bg-zinc-700 disabled:opacity-40"
+                    >
+                      -
+                    </button>
+                    <span className="text-xl font-bold px-3">{buyQuantity}</span>
+                    <button
+                      type="button"
+                      onClick={() => setBuyQuantity((q) => Math.min(listing.available_quantity || 1, q + 1))}
+                      disabled={buyQuantity >= (listing.available_quantity || 1) || buying}
+                      className="w-10 h-10 rounded-xl bg-zinc-800 border border-zinc-700 flex items-center justify-center font-bold text-lg hover:bg-zinc-700 disabled:opacity-40"
+                    >
+                      +
+                    </button>
+                    <div className="ml-auto text-right">
+                      <p className="text-xs text-gray-500">Total Purchase Cost</p>
+                      <p className="text-base font-semibold text-white">
+                        {(Number(listing.price) * buyQuantity).toFixed(4)} NEAR
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {isOwner ? (
                 <div className="space-y-3">
@@ -927,9 +1130,32 @@ function NFTDetails() {
             </div>
 
             <form onSubmit={handleListNFT} className="space-y-5">
+              {nft.is_edition && (
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-gray-200">
+                    Quantity to List (Copies)
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    max={Number(userBalance) > 0 ? Number(userBalance) : undefined}
+                    value={listingQuantity}
+                    onChange={(e) => setListingQuantity(e.target.value)}
+                    disabled={listingLoading}
+                    placeholder="e.g. 10"
+                    className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white outline-none transition placeholder:text-gray-600 focus:border-purple-500 disabled:opacity-60"
+                  />
+                  {Number(userBalance) > 0 && (
+                    <p className="mt-1 text-xs text-gray-400">
+                      You own {userBalance} copies.
+                    </p>
+                  )}
+                </div>
+              )}
+
               <div>
                 <label className="mb-2 block text-sm font-medium text-gray-200">
-                  Sale Price (NEAR)
+                  Sale Price {nft.is_edition ? "(Per Copy in NEAR)" : "(NEAR)"}
                 </label>
                 <input
                   type="text"

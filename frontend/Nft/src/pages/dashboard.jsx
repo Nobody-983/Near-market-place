@@ -11,8 +11,11 @@ import { useWallet } from "../context/walletContext";
 import { supabase } from "../lib/supabase";
 import { PREVIEW_NFTS } from "../lib/previewData";
 import { PREVIEW_DATA_ENABLED } from "../config/preview";
-import { validateNearAmount } from "../lib/near/utils";
-import { useNFTLikes } from "../hooks/useNFTLikes";
+import { yoctoToNear } from "../lib/near/utils";
+import { useNFTLikes, parseUUID } from "../hooks/useNFTLikes";
+import { marketplaceListings, nftToken } from "../lib/near/contract";
+import { NFT_CONTRACT_ID } from "../config/near";
+import { isProductionCatalogToken } from "../config/marketplace";
 
 // =====================================================
 // DASHBOARD
@@ -21,7 +24,7 @@ import { useNFTLikes } from "../hooks/useNFTLikes";
 function Dashboard() {
   const navigate = useNavigate();
 
-  const { user, profile } = useWallet();
+  const { user, profile, wallet } = useWallet();
 
   const [currentSlide, setCurrentSlide] = useState(0);
   const [trendingNFTs, setTrendingNFTs] = useState([]);
@@ -47,122 +50,127 @@ function Dashboard() {
     null;
 
   // =====================================================
-  // FETCH TRENDING NFTS
+  // FETCH TRENDING NFTS (VERIFIED ACTIVE LISTINGS ONLY)
   // =====================================================
 
   const fetchTrendingNFTs = async () => {
     try {
       setLoadingTrending(true);
 
-      // -------------------------------------------------
-      // FETCH NFTS + REAL CREATOR PROFILE
-      // -------------------------------------------------
-
-      const {
-        data: nfts,
-        error: nftError,
-      } = await supabase
-        .from("nfts")
-        .select(`
-          id,
-          name,
-          description,
-          image_url,
-          category,
-          price::text,
-          currency,
-          creator_id,
-          created_at,
-          profiles:creator_id (
-            id,
-            username,
-            display_name,
-            avatar_url
-          )
-        `);
-
-      if (nftError) {
-        throw nftError;
-      }
-
-      // -------------------------------------------------
-      // FETCH LIKES
-      // -------------------------------------------------
-
-      const {
-        data: likes,
-        error: likesError,
-      } = await supabase
-        .from("nft_likes")
-        .select("nft_id");
-
-      if (likesError) {
-        throw likesError;
-      }
-
-      // -------------------------------------------------
-      // COUNT LIKES
-      // -------------------------------------------------
-
+      // 1. Fetch likes for ranking
+      const { data: likes } = await supabase.from("nft_likes").select("nft_id");
       const likeCounts = {};
-
       (likes || []).forEach((like) => {
-        if (!likeCounts[like.nft_id]) {
-          likeCounts[like.nft_id] = 0;
+        if (!like?.nft_id) return;
+        const id = String(like.nft_id).toLowerCase();
+        likeCounts[id] = (likeCounts[id] || 0) + 1;
+      });
+
+      // 2. Fetch database listings to correlate catalog records and profile data
+      const { data: dbListings } = await supabase
+        .from("marketplace_listings")
+        .select(`
+          id, nft_id, price::text, currency, status,
+          nfts (
+            id, name, description, image_url, category, creator_id, token_id
+          ),
+          profiles:seller_id (
+            id, username, display_name, avatar_url
+          )
+        `)
+        .eq("status", "active");
+
+      // 3. Fetch verified active on-chain listings from market-v2
+      let chainNFTs = [];
+      try {
+        const chainListings = await marketplaceListings(wallet);
+        // Exclude unlisted, sold, cancelled, expired, and QA/test tokens
+        const activeListings = (chainListings || []).filter((cl) => {
+          if (!cl || !cl.active) return false;
+          return isProductionCatalogToken(cl.token_id);
+        });
+
+        chainNFTs = await Promise.all(
+          activeListings.map(async (cl) => {
+            const rawTokenId = cl.token_id;
+            const strippedUuid = rawTokenId?.startsWith("catalog-") ? rawTokenId.slice(8) : null;
+            const existingDb = (dbListings || []).find(
+              (dbl) =>
+                dbl.token_id === rawTokenId ||
+                dbl.nfts?.token_id === rawTokenId ||
+                dbl.nfts?.id === rawTokenId ||
+                (strippedUuid && (dbl.nfts?.id === strippedUuid || dbl.nft_id === strippedUuid))
+            );
+
+            let meta = null;
+            try {
+              meta = await nftToken(cl.token_id, wallet, cl.nft_contract_id || NFT_CONTRACT_ID);
+            } catch {
+              // fallback
+            }
+
+            let extra = {};
+            try {
+              if (meta?.metadata?.extra) {
+                extra = typeof meta.metadata.extra === "string" ? JSON.parse(meta.metadata.extra) : meta.metadata.extra;
+              }
+            } catch {
+              extra = {};
+            }
+
+            const title = meta?.metadata?.title || existingDb?.nfts?.name || cl.token_id;
+            const imageUrl = meta?.metadata?.media || extra?.media_url || existingDb?.nfts?.image_url;
+
+            // Exclude items with invalid or missing catalog records
+            if (!title || !imageUrl) return null;
+            if (!isProductionCatalogToken(cl.token_id, title)) return null;
+
+            const canonicalId = existingDb?.nfts?.id || strippedUuid || parseUUID(cl.token_id) || cl.token_id;
+            const likesCount = (canonicalId && likeCounts[canonicalId]) || (likeCounts[cl.token_id]) || 0;
+
+            return {
+              id: canonicalId,
+              token_id: cl.token_id,
+              name: title,
+              description: meta?.metadata?.description || existingDb?.nfts?.description || "",
+              image_url: imageUrl,
+              image: imageUrl,
+              category: extra?.category || existingDb?.nfts?.category || "RoundFrog Genesis",
+              price: yoctoToNear(cl.price),
+              currency: "NEAR",
+              creator: existingDb?.profiles?.display_name || existingDb?.profiles?.username || cl.seller,
+              created_at: cl.created_at || new Date().toISOString(),
+              likes: likesCount,
+            };
+          })
+        );
+      } catch {
+        chainNFTs = [];
+      }
+
+      const validActiveNFTs = chainNFTs.filter(Boolean);
+
+      // Deduplicate by canonical token_id
+      const seen = new Set();
+      const uniqueTrending = [];
+      for (const item of validActiveNFTs) {
+        if (!seen.has(item.token_id)) {
+          seen.add(item.token_id);
+          uniqueTrending.push(item);
         }
+      }
 
-        likeCounts[like.nft_id] += 1;
-      });
-
-      // -------------------------------------------------
-      // FORMAT REAL NFT DATA
-      // -------------------------------------------------
-
-      const formattedNFTs = (nfts || []).map((nft) => {
-        const creator = Array.isArray(nft.profiles)
-          ? nft.profiles[0]
-          : nft.profiles;
-
-        const creatorName =
-          creator?.display_name ||
-          creator?.username ||
-          "Creator";
-
-        return {
-          ...nft,
-
-          image: nft.image_url || "",
-
-          name: nft.name || "Unnamed NFT",
-
-          creator: creatorName,
-
-          price: validateNearAmount(nft.price),
-
-          likes: likeCounts[nft.id] || 0,
-        };
-      });
-
-      // -------------------------------------------------
-      // SORT BY REAL LIKE COUNT
-      // -------------------------------------------------
-
-      formattedNFTs.sort((a, b) => {
+      uniqueTrending.sort((a, b) => {
         if (b.likes !== a.likes) {
           return b.likes - a.likes;
         }
-
         return (
           new Date(b.created_at || 0) -
           new Date(a.created_at || 0)
         );
       });
 
-      // -------------------------------------------------
-      // TOP 6
-      // -------------------------------------------------
-
-      const rankedNFTs = formattedNFTs
+      const rankedNFTs = uniqueTrending
         .slice(0, 6)
         .map((nft, index) => ({
           ...nft,
@@ -178,7 +186,7 @@ function Dashboard() {
               creator: nft.profiles?.display_name || "Creator",
               likes: 12 - index * 2,
               rank: index + 1,
-            })),
+            }))
       );
     } catch (error) {
       if (PREVIEW_DATA_ENABLED) {
@@ -565,7 +573,7 @@ function Dashboard() {
                   <NFTCard
                     key={nft.id}
                     nft={nft}
-                    liked={userLikes.has(nft.id)}
+                    liked={userLikes.has(nft.id) || (nft.token_id && userLikes.has(nft.token_id))}
                     liking={
                       loadingLikes || !!likingNFT
                     }
@@ -589,7 +597,7 @@ function Dashboard() {
         ===================================================== */}
 
         <section className="mt-8">
-          <MarketOverview />
+          <MarketOverview wallet={wallet} />
         </section>
 
       </main>
@@ -719,65 +727,41 @@ function NFTCard({
 // MARKET OVERVIEW
 // =====================================================
 
-function MarketOverview() {
+function MarketOverview({ wallet }) {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let active = true;
     async function fetchStats() {
       try {
         setLoading(true);
 
-        const {
-          count: activeListings,
-          error: listingsError,
-        } = await supabase
-          .from("marketplace_listings")
-          .select("*", {
-            count: "exact",
-            head: true,
-          })
-          .eq("status", "active");
+        const chainListings = await marketplaceListings(wallet);
+        const activeCount = (chainListings || []).filter(
+          (cl) => cl && cl.active && isProductionCatalogToken(cl.token_id)
+        ).length;
 
-        if (listingsError) {
-          throw listingsError;
-        }
-
-        const {
-          count: totalNFTs,
-          error: nftsError,
-        } = await supabase
-          .from("nfts")
-          .select("*", {
-            count: "exact",
-            head: true,
-          });
-
-        if (nftsError) {
-          throw nftsError;
-        }
+        if (!active) return;
 
         setStats({
-          activeListings:
-            activeListings || 0,
-
-          totalNFTs:
-            totalNFTs || 0,
+          activeListings: activeCount,
+          totalNFTs: activeCount,
         });
       } catch (error) {
-        console.error(
-          "Market stats error:",
-          error
-        );
-
+        if (!active) return;
+        console.error("Market stats error:", error);
         setStats(null);
       } finally {
-        setLoading(false);
+        if (active) setLoading(false);
       }
     }
 
     fetchStats();
-  }, []);
+    return () => {
+      active = false;
+    };
+  }, [wallet]);
 
   if (loading) {
     return (

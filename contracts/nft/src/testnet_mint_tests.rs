@@ -55,3 +55,51 @@ fn testnet_mint_rejects_foreign_network_and_underfunded_storage() {
     .is_err());
     // Native SDK mock retains partial writes after panic; no rollback claim.
 }
+
+#[test]
+fn permissionless_testnet_minting_allows_any_wallet_self_mint_and_enforces_caller_equals_owner() {
+    let mut c = configured();
+
+    // 1. Wallet A can mint
+    testing_env!(context(alice(), NearToken::from_near(1)).build());
+    let token_a = c.nft_mint("token-a".into(), alice(), token_metadata("alice-nft"));
+    assert_eq!(token_a.owner_id, alice());
+
+    // 2. Wallet B can mint
+    testing_env!(context(bob(), NearToken::from_near(1)).build());
+    let token_b = c.nft_mint("token-b".into(), bob(), token_metadata("bob-nft"));
+    assert_eq!(token_b.owner_id, bob());
+
+    // 3. Each wallet initially owns its own NFT
+    assert_eq!(c.nft_token("token-a".into()).unwrap().owner_id, alice());
+    assert_eq!(c.nft_token("token-b".into()).unwrap().owner_id, bob());
+
+    // Unauthorized arbitrary recipient: Wallet A cannot mint to Wallet B
+    testing_env!(context(alice(), NearToken::from_near(1)).build());
+    assert!(catch_unwind(AssertUnwindSafe(|| c.nft_mint(
+        "token-c".into(),
+        bob(),
+        token_metadata("unauthorized-recipient")
+    )))
+    .is_err());
+    assert!(c.token_id_status("token-c".into()).is_none());
+
+    // Unauthorized arbitrary recipient: Wallet B cannot mint to Wallet A
+    testing_env!(context(bob(), NearToken::from_near(1)).build());
+    assert!(catch_unwind(AssertUnwindSafe(|| c.nft_mint(
+        "token-d".into(),
+        alice(),
+        token_metadata("unauthorized-recipient-2")
+    )))
+    .is_err());
+    assert!(c.token_id_status("token-d".into()).is_none());
+
+    // Non-testnet caller is rejected
+    testing_env!(context(account("attacker.near"), NearToken::from_near(1)).build());
+    assert!(catch_unwind(AssertUnwindSafe(|| c.nft_mint(
+        "token-e".into(),
+        account("attacker.near"),
+        token_metadata("non-testnet")
+    )))
+    .is_err());
+}

@@ -37,23 +37,30 @@ echo "[*] Building NFT Contract (contracts/nft) for testnet target..."
 bash "$ROOT_DIR/contracts/nft/build.sh" testnet > /dev/null
 
 NFT_WASM="$ROOT_DIR/contracts/nft/target/testnet/wasm32-unknown-unknown/release/near_nft_contract.wasm"
-EXPECTED_NFT_SHA="b8a500297d6e93bc79c3f06834d09f31bf384816301d179d1aabb425a6a4a84d"
-EXPECTED_NFT_BYTES=484725
-EXPECTED_NFT_CODE_HASH="DRmwjtfeBzXW2XgXMumytEY5scsDzEtCGsbVNKjdEtW8"
-DEPLOYED_NFT_ACCOUNT="nft.roundfrog-dev.testnet"
+DEPLOYED_NFT_SHA="b8a500297d6e93bc79c3f06834d09f31bf384816301d179d1aabb425a6a4a84d"
+DEPLOYED_NFT_BYTES=484725
+EXPECTED_NFT_CODE_HASH="${EXPECTED_NFT_CODE_HASH:-7Xwtpb4JsXxmcdgCNEJdQVnAUQqYjWYFAvbtK7vXexh7}"
+DEPLOYED_NFT_ACCOUNT="${DEPLOYED_NFT_ACCOUNT:-nft-v2.roundfrog-dev.testnet}"
+
+PERMISSIONLESS_NFT_SHA="61139d32fe4cb38f1d6b0e68437078ba9086cb9b1e2f5591e1d3904f024a6b1a"
+PERMISSIONLESS_NFT_BYTES=484731
+PERMISSIONLESS_NFT_CODE_HASH="7Xwtpb4JsXxmcdgCNEJdQVnAUQqYjWYFAvbtK7vXexh7"
 
 ACTUAL_NFT_SHA="$(sha256sum "$NFT_WASM" | cut -d ' ' -f 1)"
 ACTUAL_NFT_BYTES="$(wc -c < "$NFT_WASM" | tr -d ' ')"
 
 echo "    Artifact:       $NFT_WASM"
-echo "    Size:           $ACTUAL_NFT_BYTES bytes (expected: $EXPECTED_NFT_BYTES)"
+echo "    Size:           $ACTUAL_NFT_BYTES bytes"
 echo "    SHA-256:        $ACTUAL_NFT_SHA"
 
-if [[ "$ACTUAL_NFT_SHA" != "$EXPECTED_NFT_SHA" || "$ACTUAL_NFT_BYTES" -ne "$EXPECTED_NFT_BYTES" ]]; then
-  echo "[-] FAILED: NFT contract artifact does not match expected hash or size!" >&2
+if [[ "$ACTUAL_NFT_SHA" == "$PERMISSIONLESS_NFT_SHA" && "$ACTUAL_NFT_BYTES" -eq "$PERMISSIONLESS_NFT_BYTES" ]]; then
+  echo "[+] PASSED: NFT contract matches the reviewed permissionless Testnet version ($PERMISSIONLESS_NFT_CODE_HASH)"
+elif [[ "$ACTUAL_NFT_SHA" == "$DEPLOYED_NFT_SHA" && "$ACTUAL_NFT_BYTES" -eq "$DEPLOYED_NFT_BYTES" ]]; then
+  echo "[+] PASSED: NFT contract is byte-for-byte identical to deployed legacy Testnet contract ($DEPLOYED_NFT_ACCOUNT)"
+else
+  echo "[-] FAILED: NFT contract artifact does not match reviewed permissionless or deployed hash!" >&2
   exit 1
 fi
-echo "[+] PASSED: NFT contract is byte-for-byte identical to deployed Testnet contract ($DEPLOYED_NFT_ACCOUNT)"
 
 # 4. Build & Verify Marketplace Contract
 echo ""
@@ -64,8 +71,8 @@ MARKET_WASM="$ROOT_DIR/contracts/marketplace-deploy/target/testnet/wasm32-unknow
 # Active deployed on Testnet
 DEPLOYED_MARKET_SHA="dc10f32c3680fa1d403baf5bbec2a71634d4e343b5a7a783a84a965aff94e846"
 DEPLOYED_MARKET_BYTES=475046
-EXPECTED_MARKET_CODE_HASH="Fp3ggF3WmSMQC7m9FU717jA8nB897sYW6bik7Ysqipw7"
-DEPLOYED_MARKET_ACCOUNT="market.roundfrog-dev.testnet"
+EXPECTED_MARKET_CODE_HASH="${EXPECTED_MARKET_CODE_HASH:-2vpgmXoZSpnPgcAkE6hR4dy9EnjogNLcW2vbkECADM2y}"
+DEPLOYED_MARKET_ACCOUNT="${DEPLOYED_MARKET_ACCOUNT:-market-v2.roundfrog-dev.testnet}"
 
 # Enhanced version with protocol storage reserve (post-deployment upgrade branch)
 ENHANCED_MARKET_SHA="1ca5635d7b9da25cc7ef535061c64d103189d1d3dd3924c79670addee72d5952"

@@ -53,3 +53,22 @@ export const MINTING_UNAVAILABLE_MESSAGE =
 export const LISTING_STORAGE_TARGET_YOCTO =
   runtimeEnv.VITE_MARKETPLACE_LISTING_STORAGE_YOCTO ||
   "120000000000000000000000"; // 0.12 NEAR
+
+// Visibility Policy: Exclude standalone QA and acceptance test tokens from public inventory
+export function isProductionCatalogToken(tokenId, title = "") {
+  if (!tokenId || typeof tokenId !== "string") return false;
+  const tid = tokenId.toLowerCase();
+  const t = (title || "").toLowerCase();
+  if (
+    tid.includes("-test") ||
+    tid.includes("acceptance") ||
+    t.includes("test genesis") ||
+    t.includes("test with hash") ||
+    t.includes("test extra") ||
+    t.includes("test relative media") ||
+    t.includes("acceptance genesis")
+  ) {
+    return false;
+  }
+  return true;
+}

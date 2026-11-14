@@ -10,12 +10,13 @@ import {
   ArrowUpRight,
   Tag,
   ShoppingBag,
+  CheckCircle2,
 } from "lucide-react";
 
 import { useWallet } from "../context/walletContext";
 import { supabase } from "../lib/supabase";
 import { validateNearAmount, yoctoToNear } from "../lib/near/utils";
-import { NFT_CONTRACT_ID } from "../config/near";
+import { EDITIONS_CONTRACT_ID, LEGACY_NFT_CONTRACT_ID, NFT_CONTRACT_ID } from "../config/near";
 import {
   LISTING_ACTIONS_ENABLED,
   LISTING_UNAVAILABLE_MESSAGE,
@@ -37,14 +38,17 @@ import {
 import {
   assertFinalSuccess,
   cancelListingOnChain,
+  cancelEditionListingOnChain,
   ensureMarketplaceListingStorage,
-  getMintAuthority,
   listingIdFromFinalResult,
   listNftOnChain,
+  listEditionOnChain,
   marketplaceListing,
   marketplaceListingMetadata,
   marketplaceListings,
   mintNftOnChain,
+  mintEditionOnChain,
+  mtToken,
   nftToken,
   nftTokensForOwner,
   requireConnectedAccount,
@@ -94,6 +98,8 @@ function CreateNFT() {
     category: "Art",
     price: "",
     currency: "NEAR",
+    model: "unique",
+    editionSupply: "100",
   });
 
   const [image, setImage] = useState(null);
@@ -118,25 +124,13 @@ function CreateNFT() {
   const [listingForm, setListingForm] = useState({
     price: "",
     currency: "NEAR",
+    quantity: "1",
   });
+
+  const [mintSuccessNFT, setMintSuccessNFT] = useState(null);
 
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
-  const [mintAuthority, setMintAuthority] = useState(null);
-
-  useEffect(() => {
-    let mounted = true;
-    getMintAuthority()
-      .then((auth) => {
-        if (mounted && auth) setMintAuthority(auth);
-      })
-      .catch((e) => {
-        void e;
-      });
-    return () => {
-      mounted = false;
-    };
-  }, []);
 
   const mintCatalogNFT = async (nft) => {
     if (!MINTING_ACTIONS_ENABLED) {
@@ -145,51 +139,166 @@ function CreateNFT() {
       return;
     }
     if (!isConnected || !selector || !walletAddress) {
-      setError("Connect the configured NEAR Testnet mint-authority wallet first.");
-      return;
-    }
-    if (mintAuthority && walletAddress.trim().toLowerCase() !== mintAuthority.trim().toLowerCase()) {
-      setError(`Connected wallet (${walletAddress}) is not the configured Testnet mint authority (${mintAuthority}). Only ${mintAuthority} can mint new NFTs on this contract.`);
+      setError("Connect a NEAR Testnet wallet first.");
       return;
     }
     if (!nft?.id || nft.token_id || nft.nft_contract_id || minting) return;
 
     const tokenId = `catalog-${nft.id}`;
     const wallet = { selector, accountId: walletAddress };
+    const isEdition = nft.model === "edition" || (nft.edition_supply && Number(nft.edition_supply) > 1);
+    const supply = isEdition ? Number(nft.edition_supply || 100) : 1;
+
     setMinting(nft.id);
     setError("");
     setSuccess("");
     try {
       await requireConnectedAccount(walletAddress, wallet);
-      const result = await mintNftOnChain({
-        tokenId,
-        ownerId: walletAddress,
-        wallet,
-        metadata: {
-          title: nft.name,
-          description: nft.description || null,
-          media: nft.image_url,
-          media_hash: null,
-          copies: "1",
-          issued_at: null,
-          expires_at: null,
-          starts_at: null,
-          updated_at: null,
-          extra: JSON.stringify({ catalog_id: nft.id, category: nft.category }),
-          reference: null,
-          reference_hash: null,
-        },
-      });
-      const txHash = transactionHash(result);
-      const finalResult = await waitForFinal(txHash, walletAddress, wallet);
-      assertFinalSuccess(finalResult, "NFT mint");
-      await requireConnectedAccount(walletAddress, wallet);
-      const token = await nftToken(tokenId, wallet);
-      if (!token || token.owner_id !== walletAddress || token.token_id !== tokenId) {
-        throw new Error("The finalized mint could not be verified against NFT contract state.");
+      if (isEdition) {
+        const result = await mintEditionOnChain({
+          tokenId,
+          supply,
+          wallet,
+          metadata: {
+            title: nft.name,
+            description: nft.description || null,
+            media: nft.image_url,
+            media_hash: null,
+            copies: String(supply),
+            issued_at: null,
+            expires_at: null,
+            starts_at: null,
+            updated_at: null,
+            extra: JSON.stringify({ catalog_id: nft.id, category: nft.category, model: "edition", supply }),
+            reference: null,
+            reference_hash: null,
+          },
+        });
+        const txHash = transactionHash(result);
+        const finalResult = await waitForFinal(txHash, walletAddress, wallet);
+        assertFinalSuccess(finalResult, "Edition mint");
+        await requireConnectedAccount(walletAddress, wallet);
+        const token = await mtToken(tokenId, wallet);
+        if (!token) {
+          throw new Error("The finalized edition mint could not be verified against contract state.");
+        }
+        const contractId = typeof EDITIONS_CONTRACT_ID !== "undefined" ? EDITIONS_CONTRACT_ID : "editions.roundfrog-dev.testnet";
+        const verifiedNft = {
+          ...nft,
+          token_id: tokenId,
+          nft_contract_id: contractId,
+          owner_id: walletAddress,
+          onChainOwner: walletAddress,
+          model: "edition",
+          edition_supply: supply,
+        };
+        setNfts((currentNFTs) =>
+          currentNFTs.map((item) => (item.id === nft.id ? verifiedNft : item))
+        );
+        if (typeof setMintSuccessNFT === "function") {
+          setMintSuccessNFT({
+            nft: verifiedNft,
+            tokenId,
+            contractId,
+            ownerId: walletAddress,
+            txHash,
+            name: nft.name,
+            imageUrl: nft.image_url,
+            description: nft.description,
+            price: nft.price,
+            model: "edition",
+            supply,
+            listed: false,
+            listingPrice: null,
+            contractListingId: null,
+          });
+        }
+        setSuccess(`Limited Edition “${nft.name}” (${supply} copies) was minted on NEAR! You can now list it for sale.`);
+      } else {
+        let mediaHash = null;
+        if (nft.image_url && typeof globalThis.crypto?.subtle?.digest === "function") {
+          try {
+            const buf = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(nft.image_url));
+            mediaHash = btoa(String.fromCharCode(...new Uint8Array(buf)));
+          } catch {
+            mediaHash = null;
+          }
+        }
+        const validMedia = mediaHash ? nft.image_url : null;
+        const validMediaHash = mediaHash || null;
+        const result = await mintNftOnChain({
+          tokenId,
+          ownerId: walletAddress,
+          wallet,
+          metadata: {
+            title: nft.name,
+            description: nft.description || null,
+            media: validMedia,
+            media_hash: validMediaHash,
+            copies: 1,
+            issued_at: null,
+            expires_at: null,
+            starts_at: null,
+            updated_at: null,
+            extra: JSON.stringify({
+              catalog_id: nft.id,
+              category: nft.category,
+              model: "unique",
+              media_url: nft.image_url,
+            }),
+            reference: null,
+            reference_hash: null,
+          },
+        });
+        const txHash = transactionHash(result);
+        const finalResult = await waitForFinal(txHash, walletAddress, wallet);
+        assertFinalSuccess(finalResult, "NFT mint");
+        await requireConnectedAccount(walletAddress, wallet);
+        const token = await nftToken(tokenId, wallet);
+        if (!token || token.token_id !== tokenId) {
+          throw new Error("The finalized mint could not be verified against NFT contract state.");
+        }
+        if (token.owner_id.toLowerCase() !== walletAddress.toLowerCase()) {
+          throw new Error(
+            `The NFT was minted on-chain but belongs to ${token.owner_id}, not your connected wallet (${walletAddress}). You must transfer it to ${walletAddress} before listing.`
+          );
+        }
+        const verifiedNft = {
+          ...nft,
+          token_id: tokenId,
+          nft_contract_id: NFT_CONTRACT_ID,
+          owner_id: token.owner_id,
+          onChainOwner: token.owner_id,
+          model: "unique",
+        };
+        setNfts((currentNFTs) =>
+          currentNFTs.map((item) => (item.id === nft.id ? verifiedNft : item))
+        );
+        if (typeof setMintSuccessNFT === "function") {
+          setMintSuccessNFT({
+            nft: verifiedNft,
+            tokenId: token.token_id,
+            contractId: NFT_CONTRACT_ID,
+            ownerId: token.owner_id,
+            txHash,
+            name: nft.name,
+            imageUrl: nft.image_url,
+            description: nft.description,
+            price: nft.price,
+            model: "unique",
+            supply: 1,
+            listed: false,
+            listingPrice: null,
+            contractListingId: null,
+          });
+        }
+        setSuccess(`“${nft.name}” was minted on NEAR! You can now list it for sale on the marketplace.`);
       }
-      setSuccess(`“${nft.name}” was minted on NEAR. The trusted indexer is binding it to your catalog record.`);
-      window.setTimeout(() => { void fetchNFTs(); }, 3000);
+      if (typeof window !== "undefined" && typeof window.setTimeout === "function") {
+        window.setTimeout(() => {
+          if (typeof fetchNFTs === "function") void fetchNFTs();
+        }, 3000);
+      }
     } catch (err) {
       setError(err?.message || "Unable to mint this NFT on NEAR Testnet.");
     } finally {
@@ -379,7 +488,7 @@ function CreateNFT() {
 
   useEffect(() => {
     void Promise.resolve().then(() => Promise.all([fetchNFTs(), fetchListings()]));
-  }, [fetchListings, fetchNFTs]);
+  }, [fetchListings, fetchNFTs, walletAddress, selector]);
 
   // =========================================================
   // FIND ACTIVE LISTING
@@ -707,6 +816,53 @@ function CreateNFT() {
       }
       const wallet = { selector, accountId: walletAddress };
       await requireConnectedAccount(walletAddress, wallet);
+      const isEdition = listingNFT.model === "edition" || (typeof EDITIONS_CONTRACT_ID !== "undefined" && listingNFT.nft_contract_id === EDITIONS_CONTRACT_ID);
+      if (isEdition) {
+        const qty = Number(listingForm.quantity || 1);
+        const result = await listEditionOnChain({
+          tokenId,
+          quantity: qty,
+          pricePerCopyNear: price,
+          wallet,
+        });
+        const txHash = transactionHash(result);
+        const finalResult = await waitForFinal(txHash, walletAddress, wallet);
+        assertFinalSuccess(finalResult, "Edition listing");
+        await requireConnectedAccount(walletAddress, wallet);
+        const contractListingId = `edition|${tokenId}|${walletAddress}`;
+        setListings((prev) => [
+          {
+            id: contractListingId,
+            contract_sale_id: contractListingId,
+            contract_listing_id: contractListingId,
+            token_id: tokenId,
+            nft_id: listingNFT.id,
+            seller_id: user?.id || walletAddress,
+            seller: walletAddress,
+            price,
+            status: "active",
+            is_edition: true,
+            available_quantity: qty,
+            created_at: new Date().toISOString(),
+          },
+          ...prev,
+        ]);
+        setSuccess(`"${listingNFT.name}" (${qty} copies) is listed for sale on NEAR at ${price} NEAR each.`);
+        if (typeof setMintSuccessNFT === "function") {
+          setMintSuccessNFT((prev) => (prev && (prev.tokenId === tokenId || prev.nft?.id === listingNFT.id) ? {
+            ...prev,
+            listed: true,
+            listingPrice: price,
+            contractListingId,
+          } : prev));
+        }
+        setListingNFT(null);
+        setListingForm({ price: "", currency: "NEAR", quantity: "1" });
+        await fetchListings();
+        if (typeof fetchNFTs === "function") await fetchNFTs();
+        return;
+      }
+
       await verifyListingPreconditions({
         nftContractId,
         tokenId,
@@ -757,6 +913,15 @@ function CreateNFT() {
         ...prev,
       ]);
 
+      if (typeof setMintSuccessNFT === "function") {
+        setMintSuccessNFT((prev) => (prev && (prev.tokenId === tokenId || prev.nft?.id === listingNFT.id) ? {
+          ...prev,
+          listed: true,
+          listingPrice: price,
+          contractListingId,
+        } : prev));
+      }
+
       const indexed = await waitForIndexedListing({ transactionHash: txHash, status: "active" });
 
       const nftName = listingNFT.name;
@@ -769,9 +934,10 @@ function CreateNFT() {
       });
 
       setSuccess(indexed
-        ? `"${nftName}" is listed on NEAR and verified in the marketplace catalog.`
-        : `"${nftName}" is listed on NEAR. Catalog verification is still pending; the item will appear after the trusted indexer catches up.`);
+        ? `"${nftName}" is listed on NEAR at ${price} NEAR and verified in the marketplace catalog.`
+        : `"${nftName}" is listed on NEAR at ${price} NEAR. Catalog verification is still pending; the item will appear after the trusted indexer catches up.`);
       await fetchListings();
+      if (typeof fetchNFTs === "function") await fetchNFTs();
     } catch (err) {
       console.error("NFT listing error:", err);
 
@@ -833,6 +999,20 @@ function CreateNFT() {
       }
       const wallet = { selector, accountId: walletAddress };
       await requireConnectedAccount(walletAddress, wallet);
+
+      if (currentListing.is_edition || currentListing.id?.startsWith("edition|") || saleId?.startsWith("edition|")) {
+        const result = await cancelEditionListingOnChain({
+          listingId: saleId,
+          wallet,
+        });
+        const txHash = transactionHash(result);
+        const finalResult = await waitForFinal(txHash, walletAddress, wallet);
+        assertFinalSuccess(finalResult, "Edition listing cancellation");
+        setSuccess(`"${nft.name}" listing was cancelled on NEAR and escrowed copies returned to your wallet.`);
+        await fetchListings();
+        return;
+      }
+
       const before = await marketplaceListing(saleId, wallet);
       if (!before?.active || before.seller.toLowerCase() !== walletAddress.toLowerCase()) {
         throw new Error("The on-chain listing is no longer active for this seller.");
@@ -963,6 +1143,38 @@ function CreateNFT() {
         </p>
       </div>
 
+      {/* CONNECTED WALLET / MINT AUTHORITY NOTICE */}
+      {isConnected && walletAddress && (
+        NFT_CONTRACT_ID === LEGACY_NFT_CONTRACT_ID && walletAddress.toLowerCase() !== "seller.roundfrog-dev.testnet" ? (
+          <div className="mb-6 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-200">
+            <p className="font-semibold text-amber-100 mb-1">
+              Connected Wallet: <span className="font-mono text-white">{walletAddress}</span>
+            </p>
+            <p>
+              On-chain NFT minting on legacy contract <span className="font-mono text-amber-300">{LEGACY_NFT_CONTRACT_ID}</span> requires the configured Testnet mint authority <span className="font-mono font-bold text-white">seller.roundfrog-dev.testnet</span>. Please configure <span className="font-mono font-bold text-white">VITE_NFT_CONTRACT_ID</span> to the reviewed permissionless contract to mint from any wallet.
+            </p>
+          </div>
+        ) : MINTING_ACTIONS_ENABLED ? (
+          <div className="mb-6 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-200">
+            <p className="font-semibold text-emerald-100 mb-1">
+              Connected Wallet: <span className="font-mono text-white">{walletAddress}</span>
+            </p>
+            <p>
+              Permissionless minting enabled on <span className="font-mono text-emerald-300">{NFT_CONTRACT_ID}</span>. Your connected wallet will become the verified initial token owner on NEAR Testnet.
+            </p>
+          </div>
+        ) : (
+          <div className="mb-6 rounded-xl border border-blue-500/30 bg-blue-500/10 p-4 text-sm text-blue-200">
+            <p className="font-semibold text-blue-100 mb-1">
+              Connected Wallet: <span className="font-mono text-white">{walletAddress}</span>
+            </p>
+            <p>
+              Target Contract: <span className="font-mono text-blue-300">{NFT_CONTRACT_ID}</span> (Permissionless). Awaiting final Testnet lifecycle acceptance verification before live minting actions are unpaused.
+            </p>
+          </div>
+        )
+      )}
+
       {!MINTING_ACTIONS_ENABLED && (
         <p
           id="minting-unavailable"
@@ -1012,6 +1224,111 @@ function CreateNFT() {
           >
             <X size={17} />
           </button>
+        </div>
+      )}
+
+      {/* MINTED NFT SUCCESS PANEL */}
+
+      {mintSuccessNFT && (
+        <div
+          data-testid="post-mint-success-panel"
+          className="mb-8 overflow-hidden rounded-2xl border border-purple-500/30 bg-gradient-to-br from-purple-900/20 via-[#131127] to-black/40 p-5 sm:p-6 backdrop-blur-md shadow-xl"
+        >
+          <div className="mb-4 flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/20 text-emerald-400">
+                <CheckCircle2 size={18} />
+              </div>
+              <div>
+                <h3 className="text-base font-semibold text-white">
+                  {mintSuccessNFT.listed ? "NFT Listed for Sale!" : "NFT Minted on NEAR!"}
+                </h3>
+                <p className="text-xs text-gray-400">
+                  {mintSuccessNFT.listed
+                    ? "Your NFT is active on the Testnet marketplace."
+                    : "Verified on-chain. Ready to be listed for sale."}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setMintSuccessNFT(null)}
+              className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/5 text-gray-400 transition hover:bg-white/10 hover:text-white"
+              title="Dismiss panel"
+            >
+              <X size={16} />
+            </button>
+          </div>
+
+          <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between rounded-xl border border-white/5 bg-white/[0.02] p-4">
+            <div className="flex items-center gap-4">
+              {mintSuccessNFT.imageUrl && (
+                <img
+                  src={mintSuccessNFT.imageUrl}
+                  alt={mintSuccessNFT.name}
+                  className="h-20 w-20 flex-shrink-0 rounded-xl border border-white/10 object-cover"
+                />
+              )}
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <h4 className="font-semibold text-white text-base">
+                    {mintSuccessNFT.name}
+                  </h4>
+                  <span className="rounded-full bg-purple-500/10 px-2 py-0.5 text-[11px] font-medium text-purple-300 border border-purple-500/20 font-mono">
+                    {mintSuccessNFT.tokenId}
+                  </span>
+                </div>
+                <p className="text-xs text-gray-400">
+                  Owner: <span className="font-mono text-gray-300">{mintSuccessNFT.ownerId}</span>
+                </p>
+                {mintSuccessNFT.listed ? (
+                  <div className="flex items-center gap-2 pt-1">
+                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-400">
+                      <Tag size={13} />
+                      Listed at {mintSuccessNFT.listingPrice} NEAR
+                    </span>
+                  </div>
+                ) : (
+                  <p className="text-xs text-amber-300/90 pt-0.5">
+                    Not listed on the marketplace yet
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 sm:self-center">
+              <button
+                type="button"
+                onClick={() => handleViewNFT(mintSuccessNFT.nft)}
+                className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-xs font-semibold text-gray-200 transition hover:bg-white/10 hover:text-white"
+              >
+                View NFT
+                <ArrowUpRight size={14} />
+              </button>
+
+              {mintSuccessNFT.listed ? (
+                <button
+                  type="button"
+                  onClick={() => { window.location.href = "/marketplace"; }}
+                  className="flex items-center gap-1.5 rounded-xl bg-purple-600 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-purple-700 shadow-md shadow-purple-600/20"
+                >
+                  <ShoppingBag size={14} />
+                  View in Marketplace
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => openListingForm(mintSuccessNFT.nft)}
+                  disabled={!LISTING_ACTIONS_ENABLED || (typeof listing !== "undefined" && Boolean(mintSuccessNFT?.nft) && listing === mintSuccessNFT.nft?.id)}
+                  aria-describedby={!LISTING_ACTIONS_ENABLED ? "listing-unavailable" : undefined}
+                  className="flex items-center gap-1.5 rounded-xl bg-purple-600 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-md shadow-purple-600/20"
+                >
+                  <Tag size={14} />
+                  List for Sale
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       )}
 
@@ -1148,6 +1465,61 @@ function CreateNFT() {
                 ))}
               </select>
             </div>
+
+            {/* CREATION MODEL: UNIQUE VS LIMITED EDITION */}
+
+            <div>
+              <label className="mb-2 block text-sm font-medium">
+                Creation Model
+              </label>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setForm((c) => ({ ...c, model: "unique" }))}
+                  className={`flex flex-col rounded-xl border p-3.5 text-left transition ${
+                    form.model === "unique"
+                      ? "border-purple-500 bg-purple-500/10 text-white"
+                      : "border-white/10 bg-white/[0.02] text-gray-400 hover:border-white/20"
+                  }`}
+                >
+                  <span className="text-sm font-semibold text-white">Unique (1 of 1)</span>
+                  <span className="mt-1 text-xs text-gray-400">NEP-171 single collectible</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setForm((c) => ({ ...c, model: "edition" }))}
+                  className={`flex flex-col rounded-xl border p-3.5 text-left transition ${
+                    form.model === "edition"
+                      ? "border-purple-500 bg-purple-500/10 text-white"
+                      : "border-white/10 bg-white/[0.02] text-gray-400 hover:border-white/20"
+                  }`}
+                >
+                  <span className="text-sm font-semibold text-white">Limited Edition</span>
+                  <span className="mt-1 text-xs text-gray-400">NEP-245 fixed supply batch</span>
+                </button>
+              </div>
+            </div>
+
+            {form.model === "edition" && (
+              <div>
+                <label className="mb-2 block text-sm font-medium">
+                  Total Edition Supply
+                </label>
+                <input
+                  type="number"
+                  name="editionSupply"
+                  value={form.editionSupply}
+                  onChange={handleChange}
+                  min="2"
+                  max="1000000"
+                  placeholder="e.g. 100"
+                  className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white outline-none transition placeholder:text-gray-600 focus:border-purple-500"
+                />
+                <p className="mt-1 text-xs text-gray-500">
+                  Fixed supply cap minted in your wallet. Buyers can purchase individual or multiple copies.
+                </p>
+              </div>
+            )}
 
             {/* PRICE */}
 
@@ -1461,9 +1833,34 @@ function CreateNFT() {
               onSubmit={handleListNFT}
               className="space-y-5"
             >
+              {(listingNFT.model === "edition" || listingNFT.nft_contract_id === EDITIONS_CONTRACT_ID) && (
+                <div>
+                  <label className="mb-2 block text-sm font-medium">
+                    Quantity to List (Copies)
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={listingForm.quantity}
+                    onChange={(e) =>
+                      setListingForm((current) => ({
+                        ...current,
+                        quantity: e.target.value,
+                      }))
+                    }
+                    disabled={listing === listingNFT.id}
+                    placeholder="Enter quantity to list"
+                    className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white outline-none transition placeholder:text-gray-600 focus:border-purple-500 disabled:opacity-60"
+                  />
+                  <p className="mt-1 text-xs text-gray-500">
+                    Price below is per individual copy.
+                  </p>
+                </div>
+              )}
+
               <div>
                 <label className="mb-2 block text-sm font-medium">
-                  Sale Price
+                  Sale Price {listingNFT.model === "edition" || listingNFT.nft_contract_id === EDITIONS_CONTRACT_ID ? "(Per Copy)" : ""}
                 </label>
 
                 <input

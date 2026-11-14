@@ -1,9 +1,9 @@
 const RPC_URL = process.env.NEAR_RPC_URL || 'https://rpc.testnet.near.org';
-const NFT_CONTRACT = 'nft.roundfrog-dev.testnet';
-const MARKET_CONTRACT = 'market.roundfrog-dev.testnet';
-const SELLER = 'seller.roundfrog-dev.testnet';
-const OPERATOR = 'operator.roundfrog-dev.testnet';
-const BUYER = 'buyer.roundfrog-dev.testnet';
+const NFT_CONTRACT = process.env.NFT_CONTRACT || process.env.VITE_NFT_CONTRACT_ID || 'nft-v2.roundfrog-dev.testnet';
+const MARKET_CONTRACT = process.env.MARKET_CONTRACT || process.env.VITE_MARKETPLACE_CONTRACT_ID || 'market-v2.roundfrog-dev.testnet';
+const SELLER = process.env.SELLER || 'roundfrog-dev.testnet';
+const OPERATOR = process.env.OPERATOR || 'roundfrog-dev.testnet';
+const BUYER = process.env.BUYER || 'buyer.roundfrog-dev.testnet';
 
 async function rpc(method, params) {
   const res = await fetch(RPC_URL, {

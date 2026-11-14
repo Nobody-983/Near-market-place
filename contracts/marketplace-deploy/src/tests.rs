@@ -843,3 +843,63 @@ fn storage_withdrawal_callback_replay_cannot_pay_or_restore_twice() {
     assert_eq!(contract.ledger.storage_liability, before_liability);
     contract.assert_backed();
 }
+
+#[test]
+fn permissionless_multi_wallet_marketplace_lifecycle_is_enforced() {
+    let mut contract = setup();
+    let wallet_a = seller();
+    let wallet_b = buyer();
+    let price: u128 = 100_000_000_000_000_000_000_000; // 0.1 NEAR
+
+    // 1. Wallet A funds storage and lists its own token
+    let listing_a = list(&mut contract, "token-a", 1, 10);
+    assert!(contract.listing(listing_a.clone()).unwrap().active);
+
+    // 2. Wallet B attempts to list Wallet A's token without authorization (mismatched seller / signer)
+    env(nft(), wallet_b.clone(), 0, 11);
+    assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        contract.nft_on_approve(
+            "token-a".into(),
+            wallet_a.clone(),
+            2,
+            terms("token-a", &wallet_a, price, None),
+        )
+    }))
+    .is_err());
+
+    // 3. Wallet B cannot cancel Wallet A's listing (unauthorized cancellation rejected)
+    env(wallet_b.clone(), wallet_b.clone(), 1, 12);
+    assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        contract.cancel_listing(listing_a.clone())
+    }))
+    .is_err());
+    assert!(contract.listing(listing_a.clone()).unwrap().active);
+
+    // 4. Wallet B buys Wallet A's token
+    let sale_id = buy(&mut contract, &listing_a, wallet_b.clone(), 13);
+    callback(PromiseResult::Successful(b"true".to_vec()), 14);
+    let _ = contract.on_transfer_result(sale_id.clone());
+    let sale = contract.sale(sale_id.clone()).unwrap();
+    assert!(sale.settled);
+    assert_eq!(sale.buyer, wallet_b);
+    assert!(!contract.listing(listing_a).unwrap().active);
+
+    // Verify settlement accounting: 1% fee to fee_account, 99% to seller
+    let (expected_seller, expected_fee) = Contract::split(PRICE, 100);
+    assert_eq!(
+        contract.seller_proceeds(wallet_a.clone()).0,
+        expected_seller
+    );
+    assert_eq!(contract.fee_proceeds(owner()).0, expected_fee);
+
+    // 5. Wallet A lists another token, and Wallet A (seller) cancels its own listing
+    let listing_a2 = list(&mut contract, "token-a2", 3, 14);
+    assert!(contract.listing(listing_a2.clone()).unwrap().active);
+    env(wallet_a.clone(), wallet_a.clone(), 1, 15);
+    contract.cancel_listing(listing_a2.clone());
+    assert_eq!(
+        contract.listing_metadata(listing_a2).unwrap().status,
+        ListingStatus::Cancelled
+    );
+    contract.assert_backed();
+}

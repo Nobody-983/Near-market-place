@@ -82,17 +82,16 @@ impl Contract {
                 && authority.as_str().ends_with(".testnet"),
             "Testnet identity required"
         );
+        let caller = env::predecessor_account_id();
         require!(
-            env::predecessor_account_id() == authority && env::promise_results_count() == 0,
-            "Only configured testnet mint authority may mint"
+            caller.as_str().ends_with(".testnet"),
+            "Testnet caller required"
         );
+        require!(env::promise_results_count() == 0, "Direct caller required");
         require!(
-            recipient == &authority,
-            "Testnet mint requires recipient consent via self-mint"
+            &caller == recipient,
+            "Caller must become the initial token owner"
         );
-        require!(
-            self.tokens.owner_id == authority && self.marketplace_id.is_some(),
-            "Invalid testnet binding"
-        );
+        require!(self.marketplace_id.is_some(), "Invalid testnet binding");
     }
 }

@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { setupWalletSelector } from "@near-wallet-selector/core";
 import { setupModal } from "@near-wallet-selector/modal-ui";
 import "@near-wallet-selector/modal-ui/styles.css";
-import { NETWORK_ID } from "../config/near";
+import { EXPLORER_URL, HELPER_URL, NETWORK_ID, NODE_URL } from "../config/near";
 import { supabase } from "../lib/supabase";
 import { loginWithWallet, logoutUser } from "../services/auth";
 
@@ -40,21 +40,38 @@ export function WalletProvider({ children }) {
     const acc = targetAccountId || accountRef.current;
     const currentSelector = selectorRef.current;
     if (!acc || !currentSelector) return 0;
-    try {
-      const response = await fetch(currentSelector.options.network.nodeUrl, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jsonrpc: "2.0", id: "balance-" + acc, method: "query",
-          params: { request_type: "view_account", finality: "final", account_id: acc } }),
-      });
-      if (!response.ok) throw new Error("NEAR balance request failed");
-      const result = await response.json();
-      const nearBalance = Number(result.result?.amount || "0") / 1e24;
-      if (accountRef.current === acc) setBalance(nearBalance);
-      return nearBalance;
-    } catch {
-      if (accountRef.current === acc) setBalance(0);
-      return 0;
+    const primary = currentSelector.options?.network?.nodeUrl || NODE_URL;
+    const endpoints = [...new Set([primary, "https://test.rpc.fastnear.com", "https://rpc.testnet.near.org"].filter(Boolean))];
+    for (let i = 0; i < endpoints.length; i++) {
+      const endpoint = endpoints[i];
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 6000);
+        const response = await fetch(endpoint, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ jsonrpc: "2.0", id: "balance-" + acc, method: "query",
+            params: { request_type: "view_account", finality: "final", account_id: acc } }),
+          signal: controller.signal,
+        });
+        clearTimeout(timer);
+        if (!response.ok) {
+          if (i < endpoints.length - 1) continue;
+          throw new Error("NEAR balance request failed");
+        }
+        const result = await response.json();
+        if (result.error) {
+          if (i < endpoints.length - 1) continue;
+          throw new Error(result.error.message || "Balance query error");
+        }
+        const nearBalance = Number(result.result?.amount || "0") / 1e24;
+        if (accountRef.current === acc) setBalance(nearBalance);
+        return nearBalance;
+      } catch {
+        if (i < endpoints.length - 1) continue;
+      }
     }
+    if (accountRef.current === acc) setBalance(0);
+    return 0;
   }, []);
 
   useEffect(() => {
@@ -74,8 +91,15 @@ export function WalletProvider({ children }) {
           import("@near-wallet-selector/sender"),
         ]);
         if (disposed) return;
+        const networkConfig = {
+          networkId: NETWORK_ID,
+          nodeUrl: NODE_URL,
+          helperUrl: HELPER_URL,
+          explorerUrl: EXPLORER_URL,
+          indexerUrl: "https://test.api.fastnear.com/v0",
+        };
         const currentSelector = await setupWalletSelector({
-          network: NETWORK_ID, debug: false,
+          network: networkConfig, debug: false,
           modules: [
             myNear.setupMyNearWallet(),
             meteor.setupMeteorWallet(),
