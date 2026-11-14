@@ -67,18 +67,27 @@ function Dashboard() {
       });
 
       // 2. Fetch database listings to correlate catalog records and profile data
-      const { data: dbListings } = await supabase
-        .from("marketplace_listings")
-        .select(`
-          id, nft_id, price::text, currency, status,
-          nfts (
-            id, name, description, image_url, category, creator_id, token_id
-          ),
-          profiles:seller_id (
-            id, username, display_name, avatar_url
-          )
-        `)
-        .eq("status", "active");
+      // 2. Fetch database listings and catalog records from Supabase
+      const [{ data: dbListings }, { data: catalogNfts }] = await Promise.all([
+        supabase
+          .from("marketplace_listings")
+          .select(`
+            id, nft_id, price::text, currency, status,
+            nfts (
+              id, name, description, image_url, category, creator_id, token_id
+            ),
+            profiles:seller_id (
+              id, username, display_name, avatar_url
+            )
+          `)
+          .eq("status", "active"),
+        supabase
+          .from("nfts")
+          .select(`
+            id, name, description, image_url, category, price, currency, creator_id, token_id, nft_contract_id,
+            profiles:creator_id (id, username, display_name, avatar_url, wallet_address)
+          `),
+      ]);
 
       // 3. Fetch verified active on-chain listings from market-v2
       let chainNFTs = [];
@@ -102,6 +111,19 @@ function Dashboard() {
                 (strippedUuid && (dbl.nfts?.id === strippedUuid || dbl.nft_id === strippedUuid))
             );
 
+            const catalogNft = (catalogNfts || []).find(
+              (cnft) =>
+                (strippedUuid && cnft.id === strippedUuid) ||
+                cnft.id === rawTokenId ||
+                cnft.token_id === rawTokenId ||
+                (strippedUuid && cnft.token_id === strippedUuid)
+            );
+
+            // Visibility Policy: ONLY NFTs with a verified catalog record in Supabase may appear.
+            if (!catalogNft && !existingDb) {
+              return null;
+            }
+
             let meta = null;
             try {
               meta = await nftToken(cl.token_id, wallet, cl.nft_contract_id || NFT_CONTRACT_ID);
@@ -118,27 +140,28 @@ function Dashboard() {
               extra = {};
             }
 
-            const title = meta?.metadata?.title || existingDb?.nfts?.name || cl.token_id;
-            const imageUrl = meta?.metadata?.media || extra?.media_url || existingDb?.nfts?.image_url;
+            const matchedNft = catalogNft || existingDb?.nfts;
+            const title = matchedNft?.name || meta?.metadata?.title;
+            const imageUrl = matchedNft?.image_url || meta?.metadata?.media || extra?.media_url;
 
             // Exclude items with invalid or missing catalog records
             if (!title || !imageUrl) return null;
             if (!isProductionCatalogToken(cl.token_id, title)) return null;
 
-            const canonicalId = existingDb?.nfts?.id || strippedUuid || parseUUID(cl.token_id) || cl.token_id;
+            const canonicalId = matchedNft?.id || strippedUuid || parseUUID(cl.token_id) || cl.token_id;
             const likesCount = (canonicalId && likeCounts[canonicalId]) || (likeCounts[cl.token_id]) || 0;
 
             return {
               id: canonicalId,
               token_id: cl.token_id,
               name: title,
-              description: meta?.metadata?.description || existingDb?.nfts?.description || "",
+              description: matchedNft?.description || meta?.metadata?.description || "",
               image_url: imageUrl,
               image: imageUrl,
-              category: extra?.category || existingDb?.nfts?.category || "RoundFrog Genesis",
+              category: matchedNft?.category || extra?.category || "Art",
               price: yoctoToNear(cl.price),
               currency: "NEAR",
-              creator: existingDb?.profiles?.display_name || existingDb?.profiles?.username || cl.seller,
+              creator: matchedNft?.profiles?.display_name || existingDb?.profiles?.display_name || cl.seller,
               created_at: cl.created_at || new Date().toISOString(),
               likes: likesCount,
             };
@@ -737,10 +760,24 @@ function MarketOverview({ wallet }) {
       try {
         setLoading(true);
 
-        const chainListings = await marketplaceListings(wallet);
-        const activeCount = (chainListings || []).filter(
-          (cl) => cl && cl.active && isProductionCatalogToken(cl.token_id)
-        ).length;
+        const [chainListingsRes, catalogNftsRes] = await Promise.allSettled([
+          marketplaceListings(wallet),
+          supabase.from("nfts").select("id, token_id"),
+        ]);
+        const chainListings = chainListingsRes.status === "fulfilled" ? chainListingsRes.value || [] : [];
+        const catalogNfts = catalogNftsRes.status === "fulfilled" ? catalogNftsRes.value?.data || [] : [];
+
+        const activeCount = (chainListings || []).filter((cl) => {
+          if (!cl || !cl.active || !isProductionCatalogToken(cl.token_id)) return false;
+          const stripped = cl.token_id?.startsWith("catalog-") ? cl.token_id.slice(8) : null;
+          return catalogNfts.some(
+            (c) =>
+              (stripped && c.id === stripped) ||
+              c.id === cl.token_id ||
+              c.token_id === cl.token_id ||
+              (stripped && c.token_id === stripped)
+          );
+        }).length;
 
         if (!active) return;
 

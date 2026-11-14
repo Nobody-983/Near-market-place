@@ -16,6 +16,7 @@ import { useWallet } from "../context/walletContext";
 import { editionListings, marketplaceListings, mtToken, nftToken } from "../lib/near/contract";
 import { yoctoToNear } from "../lib/near/utils";
 import { NFT_CONTRACT_ID } from "../config/near";
+import { isProductionCatalogToken } from "../config/marketplace";
 
 function resolveImageUrl(url) {
   if (!url || typeof url !== "string") return "/near-logo.svg";
@@ -98,10 +99,16 @@ function Marketplace() {
         setLoading(true);
         setError("");
 
-        // 1. Fetch on-chain marketplace listings and database listings in parallel
-        const [chainListingsRes, dbListingsRes, edListingsRes] = await Promise.allSettled([
+        // 1. Fetch on-chain marketplace listings, database listings, catalog NFTs, and edition listings in parallel
+        const [chainListingsRes, dbListingsRes, catalogNftsRes, edListingsRes] = await Promise.allSettled([
           marketplaceListings(wallet),
           getMarketplaceListings(),
+          supabase
+            .from("nfts")
+            .select(`
+              id, name, description, image_url, category, price, currency, creator_id, token_id, nft_contract_id,
+              profiles:creator_id (id, username, display_name, avatar_url, wallet_address)
+            `),
           editionListings(wallet),
         ]);
 
@@ -117,22 +124,13 @@ function Marketplace() {
 
         const chainListings = chainListingsRes.value || [];
         const dbListings = dbListingsRes.status === "fulfilled" ? dbListingsRes.value || [] : [];
+        const catalogNfts = catalogNftsRes.status === "fulfilled" ? catalogNftsRes.value?.data || [] : [];
         const edListings = edListingsRes.status === "fulfilled" ? edListingsRes.value || [] : [];
 
         // 2. Genuine active on-chain listings from market-v2
         const activeChainListings = (chainListings || []).filter((cl) => {
           if (!cl || !cl.active) return false;
-          const tid = String(cl.token_id || "").toLowerCase();
-          if (
-            tid.includes("-test-") ||
-            tid.includes("-test3-") ||
-            tid.includes("-test4-") ||
-            tid.includes("-test5-") ||
-            tid.includes("acceptance")
-          ) {
-            return false;
-          }
-          return true;
+          return isProductionCatalogToken(cl.token_id);
         });
 
         // 3. Map on-chain active listings with real token metadata
@@ -149,6 +147,20 @@ function Marketplace() {
                 dbl.nfts?.id === rawTokenId ||
                 (strippedUuid && (dbl.nfts?.id === strippedUuid || dbl.nft_id === strippedUuid || dbl.nfts?.token_id === strippedUuid))
             );
+
+            const catalogNft = (catalogNfts || []).find(
+              (cnft) =>
+                (strippedUuid && cnft.id === strippedUuid) ||
+                cnft.id === rawTokenId ||
+                cnft.token_id === rawTokenId ||
+                (strippedUuid && cnft.token_id === strippedUuid)
+            );
+
+            // Visibility Policy: ONLY NFTs with a verified catalog record in Supabase may appear.
+            // Exclude dummy, uncataloged, or fixture listings that lack database provenance.
+            if (!catalogNft && !existingDb) {
+              return null;
+            }
 
             let meta = null;
             try {
@@ -168,24 +180,17 @@ function Marketplace() {
               extra = {};
             }
 
-            const title = meta?.metadata?.title || existingDb?.nfts?.name;
-            const imageUrl = meta?.metadata?.media || extra?.media_url || existingDb?.nfts?.image_url;
+            const matchedNft = catalogNft || existingDb?.nfts;
+            const title = matchedNft?.name || meta?.metadata?.title;
+            const imageUrl = matchedNft?.image_url || meta?.metadata?.media || extra?.media_url;
 
             // Exclude items with invalid or missing catalog records
             if (!title || !imageUrl) return null;
-            const tLower = title.toLowerCase();
-            if (
-              tLower.includes("test genesis") ||
-              tLower.includes("test with hash") ||
-              tLower.includes("test extra") ||
-              tLower.includes("test relative media") ||
-              tLower.includes("acceptance genesis")
-            ) {
-              return null;
-            }
+            if (!isProductionCatalogToken(cl.token_id, title)) return null;
 
-            const description = meta?.metadata?.description || existingDb?.nfts?.description || "";
-            const category = extra?.category || existingDb?.nfts?.category || "Collectible";
+            const description = matchedNft?.description || meta?.metadata?.description || "";
+            const category = matchedNft?.category || extra?.category || "Art";
+            const canonicalNftId = matchedNft?.id || strippedUuid || cl.token_id;
 
             return {
               id: cl.listing_id,
@@ -198,7 +203,7 @@ function Marketplace() {
               isEdition: false,
               created_at: cl.created_at,
               nfts: {
-                id: existingDb?.nfts?.id || cl.token_id,
+                id: canonicalNftId,
                 token_id: cl.token_id,
                 name: title,
                 description,
@@ -207,9 +212,9 @@ function Marketplace() {
                 isEdition: false,
               },
               profiles: {
-                display_name: existingDb?.profiles?.display_name || cl.seller,
-                username: existingDb?.profiles?.username || cl.seller,
-                avatar_url: existingDb?.profiles?.avatar_url || null,
+                display_name: matchedNft?.profiles?.display_name || existingDb?.profiles?.display_name || cl.seller,
+                username: matchedNft?.profiles?.username || existingDb?.profiles?.username || cl.seller,
+                avatar_url: matchedNft?.profiles?.avatar_url || existingDb?.profiles?.avatar_url || null,
               },
             };
           })

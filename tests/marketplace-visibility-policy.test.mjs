@@ -426,3 +426,60 @@ test('failure mode 2 & 3 regression: likes persist after refresh, support like/u
   const attackerComposite = `attacker.testnet|${genesisTokenId}|evil_seller|1`;
   assert.equal(favorites.has(attackerComposite), false, 'Attacker contract composite ID must not evaluate to liked');
 });
+
+test('marketplace catalog-presence filter excludes uncataloged on-chain listings and includes catalog-backed listings', () => {
+  // Simulate active on-chain listings from market-v2
+  const activeChainListings = [
+    {
+      listing_id: 'nft-v2.roundfrog-dev.testnet|catalog-687855bc-bc40-4bae-a299-758a449acb8e|dragon983.testnet|1',
+      token_id: 'catalog-687855bc-bc40-4bae-a299-758a449acb8e',
+      price: '5000000000000000000000000',
+      seller: 'dragon983.testnet',
+      active: true,
+    },
+    {
+      listing_id: 'nft-v2.roundfrog-dev.testnet|catalog-roundfrog-genesis-01|roundfrog-dev.testnet|2',
+      token_id: 'catalog-roundfrog-genesis-01',
+      price: '500000000000000000000000',
+      seller: 'roundfrog-dev.testnet',
+      active: true,
+    },
+  ];
+
+  // Supabase public.nfts catalog (only Atlas exists in production DB)
+  const catalogNfts = [
+    {
+      id: '687855bc-bc40-4bae-a299-758a449acb8e',
+      name: 'Atlas',
+      price: 5,
+      image_url: 'https://llqwiqhwrbfoxoqqgczy.supabase.co/storage/v1/object/public/nft-images/atlas.png',
+      token_id: null,
+    },
+  ];
+
+  // Map and filter listings using catalog verification policy
+  const visible = activeChainListings.map((cl) => {
+    const rawTokenId = cl.token_id;
+    const strippedUuid = rawTokenId?.startsWith('catalog-') ? rawTokenId.slice(8) : null;
+    const catalogNft = catalogNfts.find(
+      (cnft) =>
+        (strippedUuid && cnft.id === strippedUuid) ||
+        cnft.id === rawTokenId ||
+        cnft.token_id === rawTokenId ||
+        (strippedUuid && cnft.token_id === strippedUuid)
+    );
+    if (!catalogNft) return null; // Exclude uncataloged/dummy listing
+    return {
+      id: cl.listing_id,
+      nfts: { id: catalogNft.id, name: catalogNft.name },
+    };
+  }).filter(Boolean);
+
+  // Atlas is included because it has a real catalog record
+  assert.equal(visible.length, 1);
+  assert.equal(visible[0].nfts.id, '687855bc-bc40-4bae-a299-758a449acb8e');
+  assert.equal(visible[0].nfts.name, 'Atlas');
+
+  // Uncataloged genesis listing is excluded
+  assert.equal(visible.some((v) => v.id.includes('genesis-01')), false);
+});

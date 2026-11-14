@@ -212,42 +212,19 @@ function NFTDetails() {
         }
       }
 
-      if (!nftData && !onChainToken) {
+      if (!nftData) {
         throw new Error("NFT not found");
       }
 
-      if (nftData) {
-        setNft({
-          ...nftData,
-          token_id: onChainToken?.token_id || nftData.token_id || (targetUuid ? `catalog-${targetUuid}` : null),
-          nft_contract_id: onChainToken ? (isEditionToken ? EDITIONS_CONTRACT_ID : NFT_CONTRACT_ID) : (nftData.nft_contract_id || null),
-          price: validateNearAmount(nftData.price),
-          on_chain_owner: onChainToken?.owner_id || null,
-          is_edition: isEditionToken,
-          supply: onChainToken?.supply ? String(onChainToken.supply) : "1",
-        });
-      } else if (onChainToken) {
-        let extra = {};
-        try {
-          extra = onChainToken.metadata?.extra ? JSON.parse(onChainToken.metadata.extra) : {};
-        } catch (e) {
-          void e;
-        }
-        setNft({
-          id: onChainToken.token_id,
-          token_id: onChainToken.token_id,
-          nft_contract_id: isEditionToken ? EDITIONS_CONTRACT_ID : NFT_CONTRACT_ID,
-          name: onChainToken.metadata?.title || onChainToken.token_id,
-          description: onChainToken.metadata?.description || "",
-          image_url: onChainToken.metadata?.media || "/placeholder.png",
-          category: extra.category || "Art",
-          price: "0",
-          currency: "NEAR",
-          on_chain_owner: onChainToken.owner_id,
-          is_edition: isEditionToken,
-          supply: onChainToken?.supply ? String(onChainToken.supply) : "1",
-        });
-      }
+      setNft({
+        ...nftData,
+        token_id: onChainToken?.token_id || nftData.token_id || (targetUuid ? `catalog-${targetUuid}` : null),
+        nft_contract_id: onChainToken ? (isEditionToken ? EDITIONS_CONTRACT_ID : NFT_CONTRACT_ID) : (nftData.nft_contract_id || null),
+        price: validateNearAmount(nftData.price),
+        on_chain_owner: onChainToken?.owner_id || null,
+        is_edition: isEditionToken,
+        supply: onChainToken?.supply ? String(onChainToken.supply) : "1",
+      });
 
       let ownershipData = null;
       if (targetUuid) {
